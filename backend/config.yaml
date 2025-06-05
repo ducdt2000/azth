@@ -1,0 +1,24 @@
+jwt:
+  secret: "your-super-secret-jwt-key-change-in-production-this-should-be-at-least-32-characters-long"
+  algorithm: "HS256"
+
+server:
+  address: "0.0.0.0"
+  port: 8080
+
+database:
+  url: "postgres://azth:azth@postgres:5432/azth?sslmode=disable"
+
+redis:
+  url: "redis://redis:6379/0"
+
+oidc:
+  issuer: "http://localhost:8080"
+
+logger:
+  level: "debug"
+  format: "json"
+
+telemetry:
+  tracing:
+    enabled: false

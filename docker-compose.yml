@@ -1,0 +1,201 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: azth-postgres
+    environment:
+      POSTGRES_DB: azth
+      POSTGRES_USER: azth
+      POSTGRES_PASSWORD: azth
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U azth -d azth"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - azth-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: azth-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - azth-network
+
+  # Jaeger (Optional - for distributed tracing)
+  jaeger:
+    image: jaegertracing/all-in-one:1.50
+    container_name: azth-jaeger
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "14268:14268" # HTTP collector
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - azth-network
+    profiles:
+      - observability
+
+  # Prometheus (Optional - for metrics)
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: azth-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--storage.tsdb.retention.time=200h"
+      - "--web.enable-lifecycle"
+    networks:
+      - azth-network
+    profiles:
+      - observability
+
+  # Grafana (Optional - for dashboards)
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: azth-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./configs/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./configs/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - azth-network
+    profiles:
+      - observability
+
+  # MailHog (Optional - for email testing)
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: azth-mailhog
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+    networks:
+      - azth-network
+    profiles:
+      - development
+
+  # MinIO (Optional - for S3-compatible object storage)
+  minio:
+    image: minio/minio:RELEASE.2023-09-20T22-49-55Z
+    container_name: azth-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: azth
+      MINIO_ROOT_PASSWORD: azthsecret
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - azth-network
+    profiles:
+      - storage
+
+  # Backend (Go server)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: azth-backend
+    ports:
+      - "8080:8080"
+    environment:
+      AZTH_DATABASE_URL: "postgres://azth:azth@postgres:5432/azth?sslmode=disable"
+      AZTH_REDIS_URL: "redis://redis:6379/0"
+      AZTH_JWT_SECRET: "your-super-secret-jwt-key-change-in-production-this-should-be-at-least-32-characters-long"
+      AZTH_JWT_ALGORITHM: "HS256"
+      AZTH_OIDC_ISSUER: "http://localhost:8080"
+      AZTH_SERVER_ADDRESS: "0.0.0.0"
+      AZTH_SERVER_PORT: "8080"
+      AZTH_LOGGER_LEVEL: "debug"
+      AZTH_TELEMETRY_TRACING_ENABLED: "false"
+      AZTH_TELEMETRY_TRACING_ENDPOINT: "http://jaeger:14268/api/traces"
+    volumes:
+      - ./backend:/app
+      - go_mod_cache:/go/pkg/mod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - azth-network
+    profiles:
+      - backend
+
+  # Frontend (Nuxt 3)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: azth-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NUXT_PUBLIC_API_BASE_URL: "http://localhost:8080"
+      NUXT_PUBLIC_OIDC_ISSUER: "http://localhost:8080"
+      NUXT_PUBLIC_OIDC_CLIENT_ID: "azth-frontend"
+    volumes:
+      - ./frontend:/app
+      - node_modules_cache:/app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - azth-network
+    profiles:
+      - frontend
+
+networks:
+  azth-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  minio_data:
+    driver: local
+  go_mod_cache:
+    driver: local
+  node_modules_cache:
+    driver: local
