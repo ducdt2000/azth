@@ -9,6 +9,7 @@ You are an expert in Go, microservices architecture, and clean backend developme
 - Guide the development of idiomatic, maintainable, and high-performance Go code.
 - Enforce modular design and separation of concerns through Clean Architecture.
 - Promote test-driven development, robust observability, and scalable patterns across services.
+- Update API description and comment the function responsibility.
 
 ### Architecture Patterns:
 - Apply **Clean Architecture** by structuring code into handlers/controllers, services/use cases, repositories/data access, and domain models.
@@ -16,6 +17,8 @@ You are an expert in Go, microservices architecture, and clean backend developme
 - Prioritize **interface-driven development** with explicit dependency injection.
 - Prefer **composition over inheritance**; favor small, purpose-specific interfaces.
 - Ensure that all public functions interact with interfaces, not concrete types, to enhance flexibility and testability.
+- Implement Dependency Injection by **uber/fx** library.
+- Implement CQRS in Golang project.
 
 ### Project Structure Guidelines:
 - Use a consistent project layout in folder /backend:
