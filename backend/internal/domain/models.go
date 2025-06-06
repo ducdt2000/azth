@@ -45,6 +45,35 @@ const (
 	UserStatusPending   UserStatus = "pending"
 )
 
+// UserProfile represents additional user profile information
+type UserProfile struct {
+	ID          uuid.UUID              `db:"id" json:"id"`
+	UserID      uuid.UUID              `db:"user_id" json:"user_id"`
+	Avatar      *string                `db:"avatar" json:"avatar,omitempty"`
+	Bio         *string                `db:"bio" json:"bio,omitempty"`
+	Location    *string                `db:"location" json:"location,omitempty"`
+	Website     *string                `db:"website" json:"website,omitempty"`
+	Timezone    *string                `db:"timezone" json:"timezone,omitempty"`
+	Language    *string                `db:"language" json:"language,omitempty"`
+	Theme       *string                `db:"theme" json:"theme,omitempty"`
+	Preferences map[string]interface{} `db:"preferences" json:"preferences"`
+	CreatedAt   time.Time              `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time              `db:"updated_at" json:"updated_at"`
+}
+
+// UserSession represents a user session (simpler version than Session model)
+type UserSession struct {
+	ID        uuid.UUID  `db:"id" json:"id"`
+	UserID    uuid.UUID  `db:"user_id" json:"user_id"`
+	Token     string     `db:"token" json:"token"`
+	UserAgent *string    `db:"user_agent" json:"user_agent,omitempty"`
+	IPAddress *string    `db:"ip_address" json:"ip_address,omitempty"`
+	ExpiresAt time.Time  `db:"expires_at" json:"expires_at"`
+	CreatedAt time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt time.Time  `db:"updated_at" json:"updated_at"`
+	RevokedAt *time.Time `db:"revoked_at" json:"revoked_at,omitempty"`
+}
+
 // Tenant represents a tenant in the multi-tenant system
 type Tenant struct {
 	ID             uuid.UUID    `json:"id" db:"id"`
@@ -72,21 +101,107 @@ const (
 	TenantStatusInactive  TenantStatus = "inactive"
 	TenantStatusSuspended TenantStatus = "suspended"
 	TenantStatusTrial     TenantStatus = "trial"
+	TenantStatusDeleted   TenantStatus = "deleted"
+)
+
+// TenantSettings represents tenant-specific configuration
+type TenantSettings struct {
+	ID          uuid.UUID   `db:"id" json:"id"`
+	TenantID    uuid.UUID   `db:"tenant_id" json:"tenant_id"`
+	Key         string      `db:"key" json:"key" validate:"required"`
+	Value       interface{} `db:"value" json:"value"`
+	Type        string      `db:"type" json:"type"`
+	Description *string     `db:"description" json:"description,omitempty"`
+	IsSecret    bool        `db:"is_secret" json:"is_secret"`
+	CreatedAt   time.Time   `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time   `db:"updated_at" json:"updated_at"`
+	CreatedBy   uuid.UUID   `db:"created_by" json:"created_by"`
+	UpdatedBy   *uuid.UUID  `db:"updated_by" json:"updated_by,omitempty"`
+}
+
+// TenantUser represents a user's relationship to a tenant
+type TenantUser struct {
+	ID        uuid.UUID  `db:"id" json:"id"`
+	TenantID  uuid.UUID  `db:"tenant_id" json:"tenant_id"`
+	UserID    uuid.UUID  `db:"user_id" json:"user_id"`
+	Role      string     `db:"role" json:"role" validate:"required"`
+	Status    string     `db:"status" json:"status"`
+	CreatedAt time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt time.Time  `db:"updated_at" json:"updated_at"`
+	DeletedAt *time.Time `db:"deleted_at" json:"deleted_at,omitempty"`
+	CreatedBy uuid.UUID  `db:"created_by" json:"created_by"`
+	UpdatedBy *uuid.UUID `db:"updated_by" json:"updated_by,omitempty"`
+}
+
+// TenantInvitation represents an invitation to join a tenant
+type TenantInvitation struct {
+	ID         uuid.UUID  `db:"id" json:"id"`
+	TenantID   uuid.UUID  `db:"tenant_id" json:"tenant_id"`
+	Email      string     `db:"email" json:"email" validate:"required,email"`
+	Role       string     `db:"role" json:"role" validate:"required"`
+	Token      string     `db:"token" json:"token"`
+	Status     string     `db:"status" json:"status"`
+	ExpiresAt  time.Time  `db:"expires_at" json:"expires_at"`
+	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt  time.Time  `db:"updated_at" json:"updated_at"`
+	DeletedAt  *time.Time `db:"deleted_at" json:"deleted_at,omitempty"`
+	CreatedBy  uuid.UUID  `db:"created_by" json:"created_by"`
+	AcceptedAt *time.Time `db:"accepted_at" json:"accepted_at,omitempty"`
+	AcceptedBy *uuid.UUID `db:"accepted_by" json:"accepted_by,omitempty"`
+}
+
+// Permission represents a system permission
+type Permission struct {
+	ID          uuid.UUID  `json:"id" db:"id"`
+	Name        string     `json:"name" db:"name"`
+	Code        string     `json:"code" db:"code"`
+	Description *string    `json:"description" db:"description"`
+	Module      string     `json:"module" db:"module"`
+	Resource    string     `json:"resource" db:"resource"`
+	Action      string     `json:"action" db:"action"`
+	IsSystem    bool       `json:"is_system" db:"is_system"`
+	IsDefault   bool       `json:"is_default" db:"is_default"`
+	Metadata    JSONMap    `json:"metadata" db:"metadata"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
+	DeletedAt   *time.Time `json:"deleted_at" db:"deleted_at"`
+}
+
+// PermissionScope represents different scopes where permissions can be applied
+type PermissionScope string
+
+const (
+	PermissionScopeGlobal PermissionScope = "global"
+	PermissionScopeTenant PermissionScope = "tenant"
+	PermissionScopeUser   PermissionScope = "user"
 )
 
 // Role represents a role in the RBAC system
 type Role struct {
 	ID          uuid.UUID  `json:"id" db:"id"`
-	TenantID    uuid.UUID  `json:"tenant_id" db:"tenant_id"`
+	TenantID    *uuid.UUID `json:"tenant_id" db:"tenant_id"` // NULL for global roles
 	Name        string     `json:"name" db:"name"`
 	Slug        string     `json:"slug" db:"slug"`
 	Description *string    `json:"description" db:"description"`
-	Permissions []string   `json:"permissions" db:"permissions"`
 	IsSystem    bool       `json:"is_system" db:"is_system"`
+	IsGlobal    bool       `json:"is_global" db:"is_global"`   // True for roles shared across all tenants
+	IsDefault   bool       `json:"is_default" db:"is_default"` // True for default roles assigned to new users
+	Priority    int        `json:"priority" db:"priority"`     // For role hierarchy (higher number = higher priority)
 	Metadata    JSONMap    `json:"metadata" db:"metadata"`
 	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
 	DeletedAt   *time.Time `json:"deleted_at" db:"deleted_at"`
+	CreatedBy   uuid.UUID  `json:"created_by" db:"created_by"`
+	UpdatedBy   *uuid.UUID `json:"updated_by" db:"updated_by"`
+}
+
+// RolePermission represents the many-to-many relationship between roles and permissions
+type RolePermission struct {
+	ID           uuid.UUID `json:"id" db:"id"`
+	RoleID       uuid.UUID `json:"role_id" db:"role_id"`
+	PermissionID uuid.UUID `json:"permission_id" db:"permission_id"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	CreatedBy    uuid.UUID `json:"created_by" db:"created_by"`
 }
 
 // UserRole represents the many-to-many relationship between users and roles
@@ -98,6 +213,8 @@ type UserRole struct {
 	CreatedAt time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at" db:"updated_at"`
 	DeletedAt *time.Time `json:"deleted_at" db:"deleted_at"`
+	CreatedBy uuid.UUID  `json:"created_by" db:"created_by"`
+	UpdatedBy *uuid.UUID `json:"updated_by" db:"updated_by"`
 }
 
 // Session represents a user session
@@ -218,6 +335,12 @@ const (
 	PermissionRoleDelete = "role:delete"
 	PermissionRoleAdmin  = "role:admin"
 
+	// Permission permissions
+	PermissionPermissionRead   = "permission:read"
+	PermissionPermissionWrite  = "permission:write"
+	PermissionPermissionDelete = "permission:delete"
+	PermissionPermissionAdmin  = "permission:admin"
+
 	// OIDC permissions
 	PermissionOIDCRead   = "oidc:read"
 	PermissionOIDCWrite  = "oidc:write"
@@ -236,6 +359,8 @@ const (
 	RoleSystemAdmin = "system_admin"
 	RoleTenantAdmin = "tenant_admin"
 	RoleUser        = "user"
+	RoleModerator   = "moderator"
+	RoleViewer      = "viewer"
 )
 
 // OIDC scope constants

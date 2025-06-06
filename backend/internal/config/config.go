@@ -52,30 +52,79 @@ type CORSConfig struct {
 
 // DatabaseConfig holds database configuration
 type DatabaseConfig struct {
-	URL                string        `mapstructure:"url"`
-	Host               string        `mapstructure:"host"`
-	Port               int           `mapstructure:"port"`
-	User               string        `mapstructure:"user"`
-	Password           string        `mapstructure:"password"`
-	Name               string        `mapstructure:"name"`
-	SSLMode            string        `mapstructure:"ssl_mode"`
+	// Connection configuration
+	URL      string `mapstructure:"url"`
+	Driver   string `mapstructure:"driver"` // postgres, mysql, sqlite3, sqlserver
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
+	Name     string `mapstructure:"name"`
+	SSLMode  string `mapstructure:"ssl_mode"` // for postgres: disable, require, verify-ca, verify-full
+
+	// Connection pooling
 	MaxOpenConnections int           `mapstructure:"max_open_connections"`
 	MaxIdleConnections int           `mapstructure:"max_idle_connections"`
 	ConnMaxLifetime    time.Duration `mapstructure:"conn_max_lifetime"`
-	MigrationsPath     string        `mapstructure:"migrations_path"`
+	ConnMaxIdleTime    time.Duration `mapstructure:"conn_max_idle_time"`
+
+	// SQLite specific
+	SQLiteFile string `mapstructure:"sqlite_file"` // for sqlite3: file path
+	SQLiteMode string `mapstructure:"sqlite_mode"` // rwc, rw, ro, memory
+
+	// MySQL specific
+	MySQLCharset      string        `mapstructure:"mysql_charset"`       // utf8mb4, utf8, etc.
+	MySQLCollation    string        `mapstructure:"mysql_collation"`     // utf8mb4_unicode_ci, etc.
+	MySQLTimeout      time.Duration `mapstructure:"mysql_timeout"`       // connection timeout
+	MySQLReadTimeout  time.Duration `mapstructure:"mysql_read_timeout"`  // read timeout
+	MySQLWriteTimeout time.Duration `mapstructure:"mysql_write_timeout"` // write timeout
+
+	// SQL Server specific
+	SQLServerEncrypt   string `mapstructure:"sqlserver_encrypt"` // disable, false, true
+	SQLServerTrustCert bool   `mapstructure:"sqlserver_trust_cert"`
+
+	// Migration settings
+	MigrationsPath string `mapstructure:"migrations_path"`
+	AutoMigrate    bool   `mapstructure:"auto_migrate"`
 }
 
 // RedisConfig holds Redis configuration
 type RedisConfig struct {
-	URL         string        `mapstructure:"url"`
-	Host        string        `mapstructure:"host"`
-	Port        int           `mapstructure:"port"`
-	Password    string        `mapstructure:"password"`
-	DB          int           `mapstructure:"db"`
-	PoolSize    int           `mapstructure:"pool_size"`
-	MinIdleConn int           `mapstructure:"min_idle_conn"`
-	DialTimeout time.Duration `mapstructure:"dial_timeout"`
-	ReadTimeout time.Duration `mapstructure:"read_timeout"`
+	// Connection configuration
+	URL      string `mapstructure:"url"`
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Password string `mapstructure:"password"`
+	DB       int    `mapstructure:"db"`
+
+	// Connection pooling
+	PoolSize     int           `mapstructure:"pool_size"`
+	MinIdleConn  int           `mapstructure:"min_idle_conn"`
+	DialTimeout  time.Duration `mapstructure:"dial_timeout"`
+	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
+	WriteTimeout time.Duration `mapstructure:"write_timeout"`
+
+	// Cluster configuration
+	ClusterMode  bool     `mapstructure:"cluster_mode"`
+	ClusterAddrs []string `mapstructure:"cluster_addrs"`
+
+	// Local KV store fallback
+	Enabled    bool          `mapstructure:"enabled"` // if false, use local KV store
+	LocalStore LocalKVConfig `mapstructure:"local_store"`
+
+	// Advanced settings
+	MaxRetries      int           `mapstructure:"max_retries"`
+	MinRetryBackoff time.Duration `mapstructure:"min_retry_backoff"`
+	MaxRetryBackoff time.Duration `mapstructure:"max_retry_backoff"`
+}
+
+// LocalKVConfig holds local key-value store configuration
+type LocalKVConfig struct {
+	Type            string        `mapstructure:"type"`             // memory, file
+	FilePath        string        `mapstructure:"file_path"`        // for file-based storage
+	MaxSize         int64         `mapstructure:"max_size"`         // maximum size in bytes
+	CleanupInterval time.Duration `mapstructure:"cleanup_interval"` // cleanup expired keys interval
+	DefaultTTL      time.Duration `mapstructure:"default_ttl"`      // default TTL for keys
 }
 
 // JWTConfig holds JWT configuration
@@ -216,6 +265,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.cors.max_age", 3600)
 
 	// Database defaults
+	v.SetDefault("database.driver", "postgres")
 	v.SetDefault("database.host", "localhost")
 	v.SetDefault("database.port", 5432)
 	v.SetDefault("database.user", "azth")
@@ -225,9 +275,27 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database.max_open_connections", 25)
 	v.SetDefault("database.max_idle_connections", 25)
 	v.SetDefault("database.conn_max_lifetime", "5m")
+	v.SetDefault("database.conn_max_idle_time", "30m")
+	v.SetDefault("database.auto_migrate", true)
 	v.SetDefault("database.migrations_path", "file://migrations")
 
+	// SQLite defaults
+	v.SetDefault("database.sqlite_file", "./data/azth.db")
+	v.SetDefault("database.sqlite_mode", "rwc")
+
+	// MySQL defaults
+	v.SetDefault("database.mysql_charset", "utf8mb4")
+	v.SetDefault("database.mysql_collation", "utf8mb4_unicode_ci")
+	v.SetDefault("database.mysql_timeout", "10s")
+	v.SetDefault("database.mysql_read_timeout", "30s")
+	v.SetDefault("database.mysql_write_timeout", "30s")
+
+	// SQL Server defaults
+	v.SetDefault("database.sqlserver_encrypt", "false")
+	v.SetDefault("database.sqlserver_trust_cert", false)
+
 	// Redis defaults
+	v.SetDefault("redis.enabled", true)
 	v.SetDefault("redis.host", "localhost")
 	v.SetDefault("redis.port", 6379)
 	v.SetDefault("redis.db", 0)
@@ -235,6 +303,18 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.min_idle_conn", 5)
 	v.SetDefault("redis.dial_timeout", "5s")
 	v.SetDefault("redis.read_timeout", "3s")
+	v.SetDefault("redis.write_timeout", "3s")
+	v.SetDefault("redis.cluster_mode", false)
+	v.SetDefault("redis.max_retries", 3)
+	v.SetDefault("redis.min_retry_backoff", "8ms")
+	v.SetDefault("redis.max_retry_backoff", "512ms")
+
+	// Local KV store defaults (fallback when Redis is disabled)
+	v.SetDefault("redis.local_store.type", "memory")
+	v.SetDefault("redis.local_store.file_path", "./data/local_kv.db")
+	v.SetDefault("redis.local_store.max_size", 104857600) // 100MB
+	v.SetDefault("redis.local_store.cleanup_interval", "5m")
+	v.SetDefault("redis.local_store.default_ttl", "24h")
 
 	// JWT defaults
 	v.SetDefault("jwt.algorithm", "RS256")
@@ -305,20 +385,98 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// GetDatabaseURL returns the complete database URL
+// GetDatabaseURL returns the complete database URL based on the driver
 func (c *Config) GetDatabaseURL() string {
 	if c.Database.URL != "" {
 		return c.Database.URL
 	}
 
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		c.Database.User,
-		c.Database.Password,
-		c.Database.Host,
-		c.Database.Port,
-		c.Database.Name,
-		c.Database.SSLMode,
-	)
+	switch c.Database.Driver {
+	case "postgres":
+		return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			c.Database.User,
+			c.Database.Password,
+			c.Database.Host,
+			c.Database.Port,
+			c.Database.Name,
+			c.Database.SSLMode,
+		)
+	case "mysql":
+		charset := c.Database.MySQLCharset
+		if charset == "" {
+			charset = "utf8mb4"
+		}
+		collation := c.Database.MySQLCollation
+		if collation == "" {
+			collation = "utf8mb4_unicode_ci"
+		}
+		timeout := c.Database.MySQLTimeout
+		if timeout == 0 {
+			timeout = 10 * time.Second
+		}
+		readTimeout := c.Database.MySQLReadTimeout
+		if readTimeout == 0 {
+			readTimeout = 30 * time.Second
+		}
+		writeTimeout := c.Database.MySQLWriteTimeout
+		if writeTimeout == 0 {
+			writeTimeout = 30 * time.Second
+		}
+
+		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&collation=%s&timeout=%s&readTimeout=%s&writeTimeout=%s&parseTime=true&loc=UTC",
+			c.Database.User,
+			c.Database.Password,
+			c.Database.Host,
+			c.Database.Port,
+			c.Database.Name,
+			charset,
+			collation,
+			timeout,
+			readTimeout,
+			writeTimeout,
+		)
+	case "sqlite3":
+		file := c.Database.SQLiteFile
+		if file == "" {
+			file = "./data/azth.db"
+		}
+		mode := c.Database.SQLiteMode
+		if mode == "" {
+			mode = "rwc"
+		}
+		return fmt.Sprintf("file:%s?mode=%s&cache=shared&_fk=1&_journal_mode=WAL",
+			file,
+			mode,
+		)
+	case "sqlserver":
+		encrypt := c.Database.SQLServerEncrypt
+		if encrypt == "" {
+			encrypt = "false"
+		}
+		trustCert := "false"
+		if c.Database.SQLServerTrustCert {
+			trustCert = "true"
+		}
+		return fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=%s&trustservercertificate=%s",
+			c.Database.User,
+			c.Database.Password,
+			c.Database.Host,
+			c.Database.Port,
+			c.Database.Name,
+			encrypt,
+			trustCert,
+		)
+	default:
+		// Default to PostgreSQL
+		return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			c.Database.User,
+			c.Database.Password,
+			c.Database.Host,
+			c.Database.Port,
+			c.Database.Name,
+			c.Database.SSLMode,
+		)
+	}
 }
 
 // GetRedisURL returns the complete Redis URL

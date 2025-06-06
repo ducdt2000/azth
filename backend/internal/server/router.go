@@ -4,24 +4,28 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
+	tenantHandlers "github.com/ducdt2000/azth/backend/internal/modules/tenant/handlers"
 	userHandlers "github.com/ducdt2000/azth/backend/internal/modules/user/handlers"
 	"github.com/ducdt2000/azth/backend/pkg/logger"
 )
 
 // Router handles HTTP routing with dependency-injected handlers
 type Router struct {
-	userHandler *userHandlers.UserHandler
-	logger      *logger.Logger
+	userHandler   *userHandlers.UserHandler
+	tenantHandler *tenantHandlers.TenantHandler
+	logger        *logger.Logger
 }
 
 // NewRouter creates a new router with injected handlers
 func NewRouter(
 	userHandler *userHandlers.UserHandler,
+	tenantHandler *tenantHandlers.TenantHandler,
 	logger *logger.Logger,
 ) *Router {
 	return &Router{
-		userHandler: userHandler,
-		logger:      logger,
+		userHandler:   userHandler,
+		tenantHandler: tenantHandler,
+		logger:        logger,
 	}
 }
 
@@ -69,13 +73,18 @@ func (r *Router) SetupRoutes(e *echo.Echo) {
 	users.DELETE("/:id", r.userHandler.DeleteUser)
 	users.PUT("/:id/password", r.userHandler.ChangePassword)
 
-	// TODO: Add tenant routes
-	// tenants := v1.Group("/tenants")
-	// tenants.POST("", r.tenantHandler.CreateTenant)
-	// tenants.GET("", r.tenantHandler.ListTenants)
-	// tenants.GET("/:id", r.tenantHandler.GetTenant)
-	// tenants.PUT("/:id", r.tenantHandler.UpdateTenant)
-	// tenants.DELETE("/:id", r.tenantHandler.DeleteTenant)
+	// Tenant routes
+	tenants := v1.Group("/tenants")
+	tenants.POST("", r.tenantHandler.CreateTenant)
+	tenants.GET("", r.tenantHandler.ListTenants)
+	tenants.GET("/:id", r.tenantHandler.GetTenant)
+	tenants.PUT("/:id", r.tenantHandler.UpdateTenant)
+	tenants.DELETE("/:id", r.tenantHandler.DeleteTenant)
+	tenants.PUT("/:id/activate", r.tenantHandler.ActivateTenant)
+	tenants.PUT("/:id/deactivate", r.tenantHandler.DeactivateTenant)
+	tenants.PUT("/:id/suspend", r.tenantHandler.SuspendTenant)
+	tenants.GET("/slug/:slug", r.tenantHandler.GetTenantBySlug)
+	tenants.POST("/bulk", r.tenantHandler.BulkUpdateTenants)
 
 	// Auth routes (placeholder)
 	auth := v1.Group("/auth")

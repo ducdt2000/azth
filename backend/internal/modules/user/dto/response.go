@@ -94,3 +94,18 @@ type PaginationResponse struct {
 	Total      int `json:"total" example:"150"`
 	TotalPages int `json:"total_pages" example:"8"`
 }
+
+// SessionResponse represents a user session in API responses
+type SessionResponse struct {
+	ID           uuid.UUID  `json:"id" example:"550e8400-e29b-41d4-a716-446655440004"`
+	UserID       uuid.UUID  `json:"user_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	TenantID     uuid.UUID  `json:"tenant_id" example:"550e8400-e29b-41d4-a716-446655440001"`
+	IPAddress    string     `json:"ip_address" example:"192.168.1.100"`
+	UserAgent    string     `json:"user_agent" example:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"`
+	LastActivity time.Time  `json:"last_activity" example:"2023-12-01T08:15:30Z"`
+	ExpiresAt    time.Time  `json:"expires_at" example:"2023-12-31T23:59:59Z"`
+	Revoked      bool       `json:"revoked" example:"false"`
+	RevokedAt    *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt    time.Time  `json:"created_at" example:"2023-01-15T10:30:00Z"`
+	UpdatedAt    time.Time  `json:"updated_at" example:"2023-12-01T08:15:30Z"`
+}

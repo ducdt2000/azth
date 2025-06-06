@@ -6,54 +6,153 @@ services:
     image: postgres:15-alpine
     container_name: azth-postgres
     environment:
-      POSTGRES_DB: azth
-      POSTGRES_USER: azth
-      POSTGRES_PASSWORD: azth
+      POSTGRES_DB: ${AZTH_DATABASE_NAME:-azth}
+      POSTGRES_USER: ${AZTH_DATABASE_USER:-azth}
+      POSTGRES_PASSWORD: ${AZTH_DATABASE_PASSWORD:-azth}
     ports:
-      - "5432:5432"
+      - "${AZTH_DATABASE_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U azth -d azth"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${AZTH_DATABASE_USER:-azth} -d ${AZTH_DATABASE_NAME:-azth}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - azth-network
+    profiles:
+      - postgres
+      - backend
+      - all
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: azth-mysql
+    environment:
+      MYSQL_DATABASE: ${AZTH_DATABASE_NAME:-azth}
+      MYSQL_USER: ${AZTH_DATABASE_USER:-azth}
+      MYSQL_PASSWORD: ${AZTH_DATABASE_PASSWORD:-azth}
+      MYSQL_ROOT_PASSWORD: ${AZTH_DATABASE_PASSWORD:-azth}
+      MYSQL_CHARSET: ${AZTH_DATABASE_MYSQL_CHARSET:-utf8mb4}
+    ports:
+      - "${AZTH_DATABASE_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./scripts/init-mysql.sql:/docker-entrypoint-initdb.d/init-mysql.sql
+    command: --character-set-server=${AZTH_DATABASE_MYSQL_CHARSET:-utf8mb4} --collation-server=${AZTH_DATABASE_MYSQL_COLLATION:-utf8mb4_unicode_ci}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "${AZTH_DATABASE_USER:-azth}",
+          "-p${AZTH_DATABASE_PASSWORD:-azth}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - azth-network
+    profiles:
+      - mysql
+
+  # SQL Server Database
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: azth-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: ${AZTH_DATABASE_PASSWORD:-Azth123!}
+      MSSQL_PID: Express
+    ports:
+      - "${AZTH_DATABASE_PORT:-1433}:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/opt/mssql-tools/bin/sqlcmd",
+          "-S",
+          "localhost",
+          "-U",
+          "sa",
+          "-P",
+          "${AZTH_DATABASE_PASSWORD:-Azth123!}",
+          "-Q",
+          "SELECT 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - azth-network
+    profiles:
+      - sqlserver
 
   # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: azth-redis
     ports:
-      - "6379:6379"
+      - "${AZTH_REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command: >
+      sh -c "
+        if [ -n '${AZTH_REDIS_PASSWORD}' ]; then
+          redis-server --appendonly yes --requirepass '${AZTH_REDIS_PASSWORD}'
+        else
+          redis-server --appendonly yes
+        fi
+      "
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: >
+        sh -c "
+          if [ -n '${AZTH_REDIS_PASSWORD}' ]; then
+            redis-cli -a '${AZTH_REDIS_PASSWORD}' ping
+          else
+            redis-cli ping
+          fi
+        "
       interval: 10s
       timeout: 3s
       retries: 5
     networks:
       - azth-network
+    profiles:
+      - redis
+      - backend
+      - all
 
-  # Jaeger (Optional - for distributed tracing)
+  # Jaeger (Distributed Tracing)
   jaeger:
     image: jaegertracing/all-in-one:1.50
     container_name: azth-jaeger
     ports:
       - "16686:16686" # Jaeger UI
       - "14268:14268" # HTTP collector
+      - "6831:6831/udp" # Agent UDP
+      - "6832:6832/udp" # Agent UDP
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     networks:
       - azth-network
     profiles:
       - observability
+      - tracing
 
-  # Prometheus (Optional - for metrics)
+  # Prometheus (Metrics)
   prometheus:
     image: prom/prometheus:v2.45.0
     container_name: azth-prometheus
@@ -73,15 +172,17 @@ services:
       - azth-network
     profiles:
       - observability
+      - metrics
 
-  # Grafana (Optional - for dashboards)
+  # Grafana (Dashboards)
   grafana:
     image: grafana/grafana:10.1.0
     container_name: azth-grafana
     ports:
       - "3001:3000"
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./configs/grafana/dashboards:/etc/grafana/provisioning/dashboards
@@ -90,8 +191,9 @@ services:
       - azth-network
     profiles:
       - observability
+      - dashboards
 
-  # MailHog (Optional - for email testing)
+  # MailHog (Email Testing)
   mailhog:
     image: mailhog/mailhog:v1.0.1
     container_name: azth-mailhog
@@ -102,8 +204,9 @@ services:
       - azth-network
     profiles:
       - development
+      - email
 
-  # MinIO (Optional - for S3-compatible object storage)
+  # MinIO (S3-compatible Object Storage)
   minio:
     image: minio/minio:RELEASE.2023-09-20T22-49-55Z
     container_name: azth-minio
@@ -111,8 +214,8 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: azth
-      MINIO_ROOT_PASSWORD: azthsecret
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-azth}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-azthsecret}
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -125,38 +228,100 @@ services:
       - azth-network
     profiles:
       - storage
+      - object-storage
 
   # Backend (Go server)
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
     container_name: azth-backend
     ports:
-      - "8080:8080"
+      - "${AZTH_SERVER_PORT:-8080}:${AZTH_SERVER_PORT:-8080}"
     environment:
-      AZTH_DATABASE_URL: "postgres://azth:azth@postgres:5432/azth?sslmode=disable"
-      AZTH_REDIS_URL: "redis://redis:6379/0"
-      AZTH_JWT_SECRET: "your-super-secret-jwt-key-change-in-production-this-should-be-at-least-32-characters-long"
-      AZTH_JWT_ALGORITHM: "HS256"
-      AZTH_OIDC_ISSUER: "http://localhost:8080"
+      # Server
       AZTH_SERVER_ADDRESS: "0.0.0.0"
-      AZTH_SERVER_PORT: "8080"
-      AZTH_LOGGER_LEVEL: "debug"
-      AZTH_TELEMETRY_TRACING_ENABLED: "false"
-      AZTH_TELEMETRY_TRACING_ENDPOINT: "http://jaeger:14268/api/traces"
+      AZTH_SERVER_PORT: ${AZTH_SERVER_PORT:-8080}
+
+      # Database
+      AZTH_DATABASE_DRIVER: ${AZTH_DATABASE_DRIVER:-postgres}
+      AZTH_DATABASE_URL: ${AZTH_DATABASE_URL:-}
+      AZTH_DATABASE_HOST: ${AZTH_DATABASE_HOST:-postgres}
+      AZTH_DATABASE_PORT: ${AZTH_DATABASE_PORT:-5432}
+      AZTH_DATABASE_USER: ${AZTH_DATABASE_USER:-azth}
+      AZTH_DATABASE_PASSWORD: ${AZTH_DATABASE_PASSWORD:-azth}
+      AZTH_DATABASE_NAME: ${AZTH_DATABASE_NAME:-azth}
+      AZTH_DATABASE_SSL_MODE: ${AZTH_DATABASE_SSL_MODE:-disable}
+      AZTH_DATABASE_AUTO_MIGRATE: ${AZTH_DATABASE_AUTO_MIGRATE:-true}
+
+      # MySQL specific
+      AZTH_DATABASE_MYSQL_CHARSET: ${AZTH_DATABASE_MYSQL_CHARSET:-utf8mb4}
+      AZTH_DATABASE_MYSQL_COLLATION: ${AZTH_DATABASE_MYSQL_COLLATION:-utf8mb4_unicode_ci}
+
+      # SQLite specific
+      AZTH_DATABASE_SQLITE_FILE: ${AZTH_DATABASE_SQLITE_FILE:-./data/azth.db}
+      AZTH_DATABASE_SQLITE_MODE: ${AZTH_DATABASE_SQLITE_MODE:-rwc}
+
+      # SQL Server specific
+      AZTH_DATABASE_SQLSERVER_ENCRYPT: ${AZTH_DATABASE_SQLSERVER_ENCRYPT:-false}
+      AZTH_DATABASE_SQLSERVER_TRUST_CERT: ${AZTH_DATABASE_SQLSERVER_TRUST_CERT:-true}
+
+      # Redis/KV Store
+      AZTH_REDIS_ENABLED: ${AZTH_REDIS_ENABLED:-true}
+      AZTH_REDIS_URL: ${AZTH_REDIS_URL:-}
+      AZTH_REDIS_HOST: ${AZTH_REDIS_HOST:-redis}
+      AZTH_REDIS_PORT: ${AZTH_REDIS_PORT:-6379}
+      AZTH_REDIS_PASSWORD: ${AZTH_REDIS_PASSWORD:-}
+      AZTH_REDIS_DB: ${AZTH_REDIS_DB:-0}
+
+      # Local KV Store (fallback)
+      AZTH_REDIS_LOCAL_STORE_TYPE: ${AZTH_REDIS_LOCAL_STORE_TYPE:-memory}
+      AZTH_REDIS_LOCAL_STORE_FILE_PATH: ${AZTH_REDIS_LOCAL_STORE_FILE_PATH:-./data/local_kv.db}
+
+      # JWT
+      AZTH_JWT_SECRET: ${AZTH_JWT_SECRET:-your-super-secret-jwt-key-change-in-production-this-should-be-at-least-32-characters-long}
+      AZTH_JWT_ALGORITHM: ${AZTH_JWT_ALGORITHM:-HS256}
+      AZTH_JWT_PRIVATE_KEY_PATH: ${AZTH_JWT_PRIVATE_KEY_PATH:-}
+      AZTH_JWT_PUBLIC_KEY_PATH: ${AZTH_JWT_PUBLIC_KEY_PATH:-}
+
+      # OIDC
+      AZTH_OIDC_ISSUER: ${AZTH_OIDC_ISSUER:-http://localhost:8080}
+
+      # Logging
+      AZTH_LOGGER_LEVEL: ${AZTH_LOGGER_LEVEL:-debug}
+      AZTH_LOGGER_FORMAT: ${AZTH_LOGGER_FORMAT:-json}
+
+      # Telemetry
+      AZTH_TELEMETRY_SERVICE_NAME: ${AZTH_TELEMETRY_SERVICE_NAME:-azth-server}
+      AZTH_TELEMETRY_ENVIRONMENT: ${AZTH_TELEMETRY_ENVIRONMENT:-development}
+      AZTH_TELEMETRY_TRACING_ENABLED: ${AZTH_TELEMETRY_TRACING_ENABLED:-false}
+      AZTH_TELEMETRY_TRACING_ENDPOINT: ${AZTH_TELEMETRY_TRACING_ENDPOINT:-http://jaeger:14268/api/traces}
+      AZTH_TELEMETRY_METRICS_ENABLED: ${AZTH_TELEMETRY_METRICS_ENABLED:-false}
+
+      # Security
+      AZTH_SECURITY_PASSWORD_MIN_LENGTH: ${AZTH_SECURITY_PASSWORD_MIN_LENGTH:-8}
+      AZTH_SECURITY_MFA_ENABLED: ${AZTH_SECURITY_MFA_ENABLED:-false}
+
     volumes:
       - ./backend:/app
       - go_mod_cache:/go/pkg/mod
+      - backend_data:/app/data # For SQLite and local KV store
     depends_on:
       postgres:
         condition: service_healthy
+        required: false
+      mysql:
+        condition: service_healthy
+        required: false
       redis:
         condition: service_healthy
+        required: false
     networks:
       - azth-network
     profiles:
       - backend
+      - all
+    restart: unless-stopped
 
   # Frontend (Nuxt 3)
   frontend:
@@ -165,11 +330,11 @@ services:
       dockerfile: Dockerfile.dev
     container_name: azth-frontend
     ports:
-      - "3000:3000"
+      - "${AZTH_FRONTEND_PORT:-3000}:3000"
     environment:
-      NUXT_PUBLIC_API_BASE_URL: "http://localhost:8080"
-      NUXT_PUBLIC_OIDC_ISSUER: "http://localhost:8080"
-      NUXT_PUBLIC_OIDC_CLIENT_ID: "azth-frontend"
+      NUXT_PUBLIC_API_BASE_URL: ${AZTH_PUBLIC_API_BASE_URL:-http://localhost:8080}
+      NUXT_PUBLIC_OIDC_ISSUER: ${AZTH_OIDC_ISSUER:-http://localhost:8080}
+      NUXT_PUBLIC_OIDC_CLIENT_ID: ${AZTH_FRONTEND_CLIENT_ID:-azth-frontend}
     volumes:
       - ./frontend:/app
       - node_modules_cache:/app/node_modules
@@ -179,23 +344,42 @@ services:
       - azth-network
     profiles:
       - frontend
+      - all
+    restart: unless-stopped
 
 networks:
   azth-network:
     driver: bridge
+    name: azth-network
 
 volumes:
   postgres_data:
     driver: local
+    name: azth-postgres-data
+  mysql_data:
+    driver: local
+    name: azth-mysql-data
+  sqlserver_data:
+    driver: local
+    name: azth-sqlserver-data
   redis_data:
     driver: local
+    name: azth-redis-data
   prometheus_data:
     driver: local
+    name: azth-prometheus-data
   grafana_data:
     driver: local
+    name: azth-grafana-data
   minio_data:
     driver: local
+    name: azth-minio-data
   go_mod_cache:
     driver: local
+    name: azth-go-mod-cache
   node_modules_cache:
     driver: local
+    name: azth-node-modules-cache
+  backend_data:
+    driver: local
+    name: azth-backend-data

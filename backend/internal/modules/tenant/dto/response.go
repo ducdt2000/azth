@@ -62,9 +62,17 @@ type TenantUserStatsResponse struct {
 
 // BulkOperationResponse represents the result of a bulk operation
 type BulkOperationResponse struct {
-	SuccessCount int         `json:"success_count" example:"5"`
-	FailureCount int         `json:"failure_count" example:"1"`
-	Failures     []BulkError `json:"failures,omitempty"`
+	TotalProcessed int                    `json:"total_processed" example:"6"`
+	SuccessCount   int                    `json:"success_count" example:"5"`
+	ErrorCount     int                    `json:"error_count" example:"1"`
+	Results        []*BulkOperationResult `json:"results"`
+}
+
+// BulkOperationResult represents the result of a single operation in a bulk request
+type BulkOperationResult struct {
+	TenantID uuid.UUID `json:"tenant_id" example:"550e8400-e29b-41d4-a716-446655440001"`
+	Success  bool      `json:"success" example:"true"`
+	Error    string    `json:"error,omitempty" example:"Tenant not found"`
 }
 
 // BulkError represents an error in bulk operations

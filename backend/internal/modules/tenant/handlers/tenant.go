@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -12,23 +13,26 @@ import (
 	"github.com/ducdt2000/azth/backend/pkg/logger"
 )
 
-// TenantHandler handles HTTP requests for tenant operations
+// TenantHandler handles HTTP requests for tenant operations using CQRS pattern
 type TenantHandler struct {
-	tenantService service.TenantService
-	logger        *logger.Logger
+	service *service.TenantCQRSService
+	logger  *logger.Logger
 }
 
 // NewTenantHandler creates a new tenant handler
-func NewTenantHandler(tenantService service.TenantService, logger *logger.Logger) *TenantHandler {
+func NewTenantHandler(
+	service *service.TenantCQRSService,
+	logger *logger.Logger,
+) *TenantHandler {
 	return &TenantHandler{
-		tenantService: tenantService,
-		logger:        logger,
+		service: service,
+		logger:  logger,
 	}
 }
 
 // CreateTenant godoc
 // @Summary Create a new tenant
-// @Description Create a new tenant organization with the provided information
+// @Description Create a new tenant organization
 // @Tags Tenants
 // @Accept json
 // @Produce json
@@ -67,13 +71,17 @@ func (h *TenantHandler) CreateTenant(c echo.Context) error {
 		})
 	}
 
-	tenant, err := h.tenantService.CreateTenant(c.Request().Context(), &req)
+	// Add user context to request context
+	ctx := h.addUserContextToRequest(c)
+
+	// Call service layer
+	tenant, err := h.service.CreateTenant(ctx, &req)
 	if err != nil {
 		h.logger.Error("Failed to create tenant", "error", err)
 		return h.handleServiceError(c, err)
 	}
 
-	h.logger.Info("Tenant created successfully", "tenant_id", tenant.ID, "slug", tenant.Slug)
+	h.logger.Info("Tenant created successfully", "tenant_id", tenant.ID, "slug", req.Slug)
 	return c.JSON(http.StatusCreated, dto.APIResponse{
 		Success: true,
 		Message: "Tenant created successfully",
@@ -107,7 +115,8 @@ func (h *TenantHandler) GetTenant(c echo.Context) error {
 		})
 	}
 
-	tenant, err := h.tenantService.GetTenant(c.Request().Context(), tenantID)
+	ctx := h.addUserContextToRequest(c)
+	tenant, err := h.service.GetTenant(ctx, tenantID)
 	if err != nil {
 		h.logger.Error("Failed to get tenant", "tenant_id", tenantID, "error", err)
 		return h.handleServiceError(c, err)
@@ -145,7 +154,8 @@ func (h *TenantHandler) GetTenantBySlug(c echo.Context) error {
 		})
 	}
 
-	tenant, err := h.tenantService.GetTenantBySlug(c.Request().Context(), slug)
+	ctx := h.addUserContextToRequest(c)
+	tenant, err := h.service.GetTenantBySlug(ctx, slug)
 	if err != nil {
 		h.logger.Error("Failed to get tenant by slug", "slug", slug, "error", err)
 		return h.handleServiceError(c, err)
@@ -213,7 +223,8 @@ func (h *TenantHandler) UpdateTenant(c echo.Context) error {
 		})
 	}
 
-	tenant, err := h.tenantService.UpdateTenant(c.Request().Context(), tenantID, &req)
+	ctx := h.addUserContextToRequest(c)
+	tenant, err := h.service.UpdateTenant(ctx, tenantID, &req)
 	if err != nil {
 		h.logger.Error("Failed to update tenant", "tenant_id", tenantID, "error", err)
 		return h.handleServiceError(c, err)
@@ -229,12 +240,13 @@ func (h *TenantHandler) UpdateTenant(c echo.Context) error {
 
 // DeleteTenant godoc
 // @Summary Delete tenant
-// @Description Soft delete a tenant and all associated data
+// @Description Soft delete a tenant
 // @Tags Tenants
 // @Accept json
 // @Produce json
 // @Param id path string true "Tenant ID" format(uuid)
-// @Success 200 {object} dto.APIResponse "Tenant deleted successfully"
+// @Param reason query string false "Deletion reason"
+// @Success 200 {object} dto.APIResponse{} "Tenant deleted successfully"
 // @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid tenant ID"
 // @Failure 404 {object} dto.APIResponse{error=dto.APIError} "Tenant not found"
 // @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
@@ -253,7 +265,8 @@ func (h *TenantHandler) DeleteTenant(c echo.Context) error {
 		})
 	}
 
-	err = h.tenantService.DeleteTenant(c.Request().Context(), tenantID)
+	ctx := h.addUserContextToRequest(c)
+	err = h.service.DeleteTenant(ctx, tenantID)
 	if err != nil {
 		h.logger.Error("Failed to delete tenant", "tenant_id", tenantID, "error", err)
 		return h.handleServiceError(c, err)
@@ -268,15 +281,15 @@ func (h *TenantHandler) DeleteTenant(c echo.Context) error {
 
 // ListTenants godoc
 // @Summary List tenants
-// @Description Retrieve a paginated list of tenants with optional filtering
+// @Description List tenants with pagination and filtering
 // @Tags Tenants
 // @Accept json
 // @Produce json
-// @Param page query int false "Page number" default(1) minimum(1)
-// @Param limit query int false "Items per page" default(20) minimum(1) maximum(100)
+// @Param page query int false "Page number" minimum(1) default(1)
+// @Param limit query int false "Items per page" minimum(1) maximum(100) default(20)
 // @Param sort query string false "Sort field" Enums(created_at, updated_at, name, slug) default(created_at)
 // @Param order query string false "Sort order" Enums(asc, desc) default(desc)
-// @Param search query string false "Search term (name, slug, domain)"
+// @Param search query string false "Search term"
 // @Param status query string false "Filter by status" Enums(active, inactive, suspended, trial)
 // @Param plan query string false "Filter by plan" Enums(free, pro, enterprise)
 // @Success 200 {object} dto.APIResponse{data=dto.TenantListResponse} "Tenants retrieved successfully"
@@ -291,14 +304,15 @@ func (h *TenantHandler) ListTenants(c echo.Context) error {
 			Success: false,
 			Message: "Invalid query parameters",
 			Error: &dto.APIError{
-				Code:    "INVALID_QUERY_PARAMS",
+				Code:    "INVALID_PARAMETERS",
 				Message: "Invalid query parameters",
 				Details: err.Error(),
 			},
 		})
 	}
 
-	tenants, err := h.tenantService.ListTenants(c.Request().Context(), req)
+	ctx := h.addUserContextToRequest(c)
+	tenants, err := h.service.ListTenants(ctx, req)
 	if err != nil {
 		h.logger.Error("Failed to list tenants", "error", err)
 		return h.handleServiceError(c, err)
@@ -311,60 +325,21 @@ func (h *TenantHandler) ListTenants(c echo.Context) error {
 	})
 }
 
-// GetTenantStats godoc
-// @Summary Get tenant statistics
-// @Description Retrieve tenant statistics with optional filtering
-// @Tags Tenants
-// @Accept json
-// @Produce json
-// @Param date_from query string false "Start date for statistics" format(date)
-// @Param date_to query string false "End date for statistics" format(date)
-// @Success 200 {object} dto.APIResponse{data=dto.TenantStatsResponse} "Tenant statistics retrieved successfully"
-// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid query parameters"
-// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
-// @Router /api/v1/tenants/stats [get]
-// @Security BearerAuth
-func (h *TenantHandler) GetTenantStats(c echo.Context) error {
-	req, err := h.parseTenantStatsRequest(c)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
-			Success: false,
-			Message: "Invalid query parameters",
-			Error: &dto.APIError{
-				Code:    "INVALID_QUERY_PARAMS",
-				Message: "Invalid query parameters",
-				Details: err.Error(),
-			},
-		})
-	}
-
-	stats, err := h.tenantService.GetTenantStats(c.Request().Context(), req)
-	if err != nil {
-		h.logger.Error("Failed to get tenant stats", "error", err)
-		return h.handleServiceError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, dto.APIResponse{
-		Success: true,
-		Message: "Tenant statistics retrieved successfully",
-		Data:    stats,
-	})
-}
-
-// GetTenantUserStats godoc
-// @Summary Get tenant user statistics
-// @Description Retrieve user statistics for a specific tenant
+// ActivateTenant godoc
+// @Summary Activate tenant
+// @Description Activate a tenant
 // @Tags Tenants
 // @Accept json
 // @Produce json
 // @Param id path string true "Tenant ID" format(uuid)
-// @Success 200 {object} dto.APIResponse{data=dto.TenantUserStatsResponse} "Tenant user statistics retrieved successfully"
+// @Param reason query string false "Activation reason"
+// @Success 200 {object} dto.APIResponse{data=dto.TenantResponse} "Tenant activated successfully"
 // @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid tenant ID"
 // @Failure 404 {object} dto.APIResponse{error=dto.APIError} "Tenant not found"
 // @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
-// @Router /api/v1/tenants/{id}/stats/users [get]
+// @Router /api/v1/tenants/{id}/activate [post]
 // @Security BearerAuth
-func (h *TenantHandler) GetTenantUserStats(c echo.Context) error {
+func (h *TenantHandler) ActivateTenant(c echo.Context) error {
 	tenantID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, dto.APIResponse{
@@ -377,16 +352,123 @@ func (h *TenantHandler) GetTenantUserStats(c echo.Context) error {
 		})
 	}
 
-	stats, err := h.tenantService.GetTenantUserStats(c.Request().Context(), tenantID)
+	ctx := h.addUserContextToRequest(c)
+	err = h.service.ActivateTenant(ctx, tenantID)
 	if err != nil {
-		h.logger.Error("Failed to get tenant user stats", "tenant_id", tenantID, "error", err)
+		h.logger.Error("Failed to activate tenant", "tenant_id", tenantID, "error", err)
 		return h.handleServiceError(c, err)
 	}
 
+	// Get updated tenant for response
+	tenant, err := h.service.GetTenant(ctx, tenantID)
+	if err != nil {
+		h.logger.Error("Failed to retrieve updated tenant", "error", err)
+		return h.handleServiceError(c, err)
+	}
+
+	h.logger.Info("Tenant activated successfully", "tenant_id", tenantID)
 	return c.JSON(http.StatusOK, dto.APIResponse{
 		Success: true,
-		Message: "Tenant user statistics retrieved successfully",
-		Data:    stats,
+		Message: "Tenant activated successfully",
+		Data:    tenant,
+	})
+}
+
+// DeactivateTenant godoc
+// @Summary Deactivate tenant
+// @Description Deactivate a tenant
+// @Tags Tenants
+// @Accept json
+// @Produce json
+// @Param id path string true "Tenant ID" format(uuid)
+// @Param reason query string false "Deactivation reason"
+// @Success 200 {object} dto.APIResponse{data=dto.TenantResponse} "Tenant deactivated successfully"
+// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid tenant ID"
+// @Failure 404 {object} dto.APIResponse{error=dto.APIError} "Tenant not found"
+// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Router /api/v1/tenants/{id}/deactivate [post]
+// @Security BearerAuth
+func (h *TenantHandler) DeactivateTenant(c echo.Context) error {
+	tenantID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, dto.APIResponse{
+			Success: false,
+			Message: "Invalid tenant ID",
+			Error: &dto.APIError{
+				Code:    "INVALID_TENANT_ID",
+				Message: "Invalid tenant ID format",
+			},
+		})
+	}
+
+	ctx := h.addUserContextToRequest(c)
+	err = h.service.DeactivateTenant(ctx, tenantID)
+	if err != nil {
+		h.logger.Error("Failed to deactivate tenant", "tenant_id", tenantID, "error", err)
+		return h.handleServiceError(c, err)
+	}
+
+	// Get updated tenant for response
+	tenant, err := h.service.GetTenant(ctx, tenantID)
+	if err != nil {
+		h.logger.Error("Failed to retrieve updated tenant", "error", err)
+		return h.handleServiceError(c, err)
+	}
+
+	h.logger.Info("Tenant deactivated successfully", "tenant_id", tenantID)
+	return c.JSON(http.StatusOK, dto.APIResponse{
+		Success: true,
+		Message: "Tenant deactivated successfully",
+		Data:    tenant,
+	})
+}
+
+// SuspendTenant godoc
+// @Summary Suspend tenant
+// @Description Suspend a tenant
+// @Tags Tenants
+// @Accept json
+// @Produce json
+// @Param id path string true "Tenant ID" format(uuid)
+// @Param reason query string true "Suspension reason"
+// @Success 200 {object} dto.APIResponse{data=dto.TenantResponse} "Tenant suspended successfully"
+// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid tenant ID or missing reason"
+// @Failure 404 {object} dto.APIResponse{error=dto.APIError} "Tenant not found"
+// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Router /api/v1/tenants/{id}/suspend [post]
+// @Security BearerAuth
+func (h *TenantHandler) SuspendTenant(c echo.Context) error {
+	tenantID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, dto.APIResponse{
+			Success: false,
+			Message: "Invalid tenant ID",
+			Error: &dto.APIError{
+				Code:    "INVALID_TENANT_ID",
+				Message: "Invalid tenant ID format",
+			},
+		})
+	}
+
+	ctx := h.addUserContextToRequest(c)
+	err = h.service.SuspendTenant(ctx, tenantID)
+	if err != nil {
+		h.logger.Error("Failed to suspend tenant", "tenant_id", tenantID, "error", err)
+		return h.handleServiceError(c, err)
+	}
+
+	// Get updated tenant for response
+	tenant, err := h.service.GetTenant(ctx, tenantID)
+	if err != nil {
+		h.logger.Error("Failed to retrieve updated tenant", "error", err)
+		return h.handleServiceError(c, err)
+	}
+
+	h.logger.Info("Tenant suspended successfully", "tenant_id", tenantID)
+	return c.JSON(http.StatusOK, dto.APIResponse{
+		Success: true,
+		Message: "Tenant suspended successfully",
+		Data:    tenant,
 	})
 }
 
@@ -405,7 +487,7 @@ func (h *TenantHandler) GetTenantUserStats(c echo.Context) error {
 func (h *TenantHandler) BulkUpdateTenants(c echo.Context) error {
 	var req dto.BulkTenantRequest
 	if err := c.Bind(&req); err != nil {
-		h.logger.Error("Failed to bind bulk update request", "error", err)
+		h.logger.Error("Failed to bind bulk tenant request", "error", err)
 		return c.JSON(http.StatusBadRequest, dto.APIResponse{
 			Success: false,
 			Message: "Invalid request data",
@@ -417,40 +499,45 @@ func (h *TenantHandler) BulkUpdateTenants(c echo.Context) error {
 		})
 	}
 
-	if err := c.Validate(&req); err != nil {
-		h.logger.Error("Failed to validate bulk update request", "error", err)
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
-			Success: false,
-			Message: "Validation failed",
-			Error: &dto.APIError{
-				Code:    "VALIDATION_ERROR",
-				Message: "Validation failed",
-				Details: err.Error(),
-			},
-		})
-	}
-
-	result, err := h.tenantService.BulkUpdateTenants(c.Request().Context(), &req)
+	ctx := h.addUserContextToRequest(c)
+	response, err := h.service.BulkUpdateTenants(ctx, &req)
 	if err != nil {
-		h.logger.Error("Failed to perform bulk update", "error", err)
+		h.logger.Error("Failed to perform bulk operation", "error", err)
 		return h.handleServiceError(c, err)
 	}
 
-	h.logger.Info("Bulk operation completed", "success_count", result.SuccessCount, "failure_count", result.FailureCount)
+	h.logger.Info("Bulk operation completed", "total", response.TotalProcessed, "success", response.SuccessCount, "errors", response.ErrorCount)
 	return c.JSON(http.StatusOK, dto.APIResponse{
 		Success: true,
 		Message: "Bulk operation completed",
-		Data:    result,
+		Data:    response,
 	})
 }
 
 // Helper methods
+
+func (h *TenantHandler) addUserContextToRequest(c echo.Context) context.Context {
+	ctx := c.Request().Context()
+
+	// Extract user ID from context (should be set by authentication middleware)
+	if userIDStr := c.Get("user_id"); userIDStr != nil {
+		if userID, err := uuid.Parse(userIDStr.(string)); err == nil {
+			ctx = context.WithValue(ctx, "user_id", userID)
+		}
+	}
+
+	return ctx
+}
+
 func (h *TenantHandler) parseTenantListRequest(c echo.Context) (*dto.TenantListRequest, error) {
 	req := &dto.TenantListRequest{
-		Page:  1,
-		Limit: 20,
-		Sort:  "created_at",
-		Order: "desc",
+		Page:   1,
+		Limit:  20,
+		Sort:   "created_at",
+		Order:  "desc",
+		Search: c.QueryParam("search"),
+		Status: c.QueryParam("status"),
+		Plan:   c.QueryParam("plan"),
 	}
 
 	if page := c.QueryParam("page"); page != "" {
@@ -473,36 +560,48 @@ func (h *TenantHandler) parseTenantListRequest(c echo.Context) (*dto.TenantListR
 		req.Order = order
 	}
 
-	req.Search = c.QueryParam("search")
-	req.Status = c.QueryParam("status")
-	req.Plan = c.QueryParam("plan")
-
-	return req, nil
-}
-
-func (h *TenantHandler) parseTenantStatsRequest(c echo.Context) (*dto.TenantStatsRequest, error) {
-	req := &dto.TenantStatsRequest{}
-
-	if dateFrom := c.QueryParam("date_from"); dateFrom != "" {
-		req.DateFrom = &dateFrom
-	}
-
-	if dateTo := c.QueryParam("date_to"); dateTo != "" {
-		req.DateTo = &dateTo
-	}
-
 	return req, nil
 }
 
 func (h *TenantHandler) handleServiceError(c echo.Context, err error) error {
-	// TODO: Implement proper error handling based on error types
-	// This is a simplified version
-	return c.JSON(http.StatusInternalServerError, dto.APIResponse{
-		Success: false,
-		Message: "Internal server error",
-		Error: &dto.APIError{
-			Code:    "INTERNAL_ERROR",
-			Message: "An internal error occurred",
-		},
-	})
+	// Map specific errors to HTTP status codes
+	switch {
+	case err.Error() == "tenant already exists":
+		return c.JSON(http.StatusConflict, dto.APIResponse{
+			Success: false,
+			Message: "Tenant already exists",
+			Error: &dto.APIError{
+				Code:    "TENANT_EXISTS",
+				Message: "Tenant already exists",
+			},
+		})
+	case err.Error() == "tenant not found" || err.Error() == "failed to retrieve created tenant: tenant not found":
+		return c.JSON(http.StatusNotFound, dto.APIResponse{
+			Success: false,
+			Message: "Tenant not found",
+			Error: &dto.APIError{
+				Code:    "TENANT_NOT_FOUND",
+				Message: "Tenant not found",
+			},
+		})
+	case err.Error() == "tenant slug already exists" || err.Error() == "tenant domain already exists":
+		return c.JSON(http.StatusConflict, dto.APIResponse{
+			Success: false,
+			Message: "Resource already exists",
+			Error: &dto.APIError{
+				Code:    "RESOURCE_EXISTS",
+				Message: err.Error(),
+			},
+		})
+	default:
+		return c.JSON(http.StatusInternalServerError, dto.APIResponse{
+			Success: false,
+			Message: "Internal server error",
+			Error: &dto.APIError{
+				Code:    "INTERNAL_ERROR",
+				Message: "An internal error occurred",
+				Details: err.Error(),
+			},
+		})
+	}
 }

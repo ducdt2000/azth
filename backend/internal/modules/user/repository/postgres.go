@@ -224,6 +224,28 @@ func (r *postgresUserRepository) List(ctx context.Context, req *dto.UserListRequ
 
 	// Get paginated results
 	offset := (req.Page - 1) * req.Limit
+
+	// Build ORDER BY clause with whitelist validation to prevent SQL injection
+	validSortColumns := map[string]bool{
+		"email":         true,
+		"username":      true,
+		"first_name":    true,
+		"last_name":     true,
+		"status":        true,
+		"created_at":    true,
+		"updated_at":    true,
+		"last_login_at": true,
+	}
+
+	if !validSortColumns[req.Sort] {
+		req.Sort = "created_at" // Default to safe column
+	}
+
+	// Validate order direction
+	if req.Order != "ASC" && req.Order != "DESC" {
+		req.Order = "DESC" // Default to DESC
+	}
+
 	orderClause := fmt.Sprintf("ORDER BY %s %s", req.Sort, req.Order)
 
 	query := fmt.Sprintf(`
@@ -336,41 +358,18 @@ func (r *postgresUserRepository) UsernameExists(ctx context.Context, username st
 // GetUserRoles retrieves roles assigned to a user
 func (r *postgresUserRepository) GetUserRoles(ctx context.Context, userID uuid.UUID) ([]*domain.UserRole, error) {
 	query := `
-		SELECT ur.*, r.name as role_name, r.slug as role_slug, r.description as role_description,
-			   r.permissions as role_permissions, r.is_system as role_is_system
+		SELECT ur.id, ur.user_id, ur.role_id, ur.tenant_id, ur.created_at, ur.updated_at, ur.deleted_at, ur.created_by, ur.updated_by
 		FROM user_roles ur
 		JOIN roles r ON ur.role_id = r.id
 		WHERE ur.user_id = $1 AND ur.deleted_at IS NULL AND r.deleted_at IS NULL
 		ORDER BY ur.created_at DESC
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, userID)
+	var userRoles []*domain.UserRole
+	err := r.db.SelectContext(ctx, &userRoles, query, userID)
 	if err != nil {
 		r.logger.Error("Failed to get user roles", "error", err, "user_id", userID)
 		return nil, fmt.Errorf("failed to get user roles: %w", err)
-	}
-	defer rows.Close()
-
-	var userRoles []*domain.UserRole
-	for rows.Next() {
-		var ur domain.UserRole
-		var role domain.Role
-
-		err := rows.Scan(
-			&ur.ID, &ur.UserID, &ur.RoleID, &ur.TenantID, &ur.CreatedAt, &ur.UpdatedAt, &ur.DeletedAt,
-			&role.Name, &role.Slug, &role.Description, &role.Permissions, &role.IsSystem,
-		)
-		if err != nil {
-			r.logger.Error("Failed to scan user role", "error", err)
-			return nil, fmt.Errorf("failed to scan user role: %w", err)
-		}
-
-		// Set the role data
-		role.ID = ur.RoleID
-		role.TenantID = ur.TenantID
-		// Note: We can't easily get role timestamps in this query, but for API responses it's often not needed
-
-		userRoles = append(userRoles, &ur)
 	}
 
 	return userRoles, nil
