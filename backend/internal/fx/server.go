@@ -4,6 +4,8 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/ducdt2000/azth/backend/internal/config"
+	permissionHandlers "github.com/ducdt2000/azth/backend/internal/modules/permission/handlers"
+	roleHandlers "github.com/ducdt2000/azth/backend/internal/modules/role/handlers"
 	tenantHandlers "github.com/ducdt2000/azth/backend/internal/modules/tenant/handlers"
 	userHandlers "github.com/ducdt2000/azth/backend/internal/modules/user/handlers"
 	"github.com/ducdt2000/azth/backend/internal/server"
@@ -20,9 +22,11 @@ var ServerModule = fx.Module("server",
 func NewRouter(
 	userHandler *userHandlers.UserHandler,
 	tenantHandler *tenantHandlers.TenantHandler,
+	roleHandler *roleHandlers.RoleHandler,
+	permissionHandler *permissionHandlers.PermissionHandler,
 	logger *logger.Logger,
 ) *server.Router {
-	return server.NewRouter(userHandler, tenantHandler, logger)
+	return server.NewRouter(userHandler, tenantHandler, roleHandler, permissionHandler, logger)
 }
 
 // NewServer creates a new HTTP server instance

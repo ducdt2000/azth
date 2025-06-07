@@ -104,11 +104,19 @@ type UserRoleResponse struct {
 	CreatedBy uuid.UUID     `json:"created_by"`
 }
 
+// BulkRoleAssignment represents a role assignment in bulk operations
+type BulkRoleAssignment struct {
+	UserID   uuid.UUID `json:"user_id" validate:"required"`
+	RoleID   uuid.UUID `json:"role_id" validate:"required"`
+	TenantID uuid.UUID `json:"tenant_id" validate:"required"`
+}
+
 // BulkRoleRequest represents a bulk operation request for roles
 type BulkRoleRequest struct {
-	Action  string         `json:"action" validate:"required,oneof=create delete assign revoke"`
-	RoleIDs []uuid.UUID    `json:"role_ids,omitempty"`
-	Roles   []*RoleRequest `json:"roles,omitempty"`
+	Action      string               `json:"action" validate:"required,oneof=create delete assign revoke"`
+	RoleIDs     []uuid.UUID          `json:"role_ids,omitempty"`
+	Roles       []*RoleRequest       `json:"roles,omitempty"`
+	Assignments []BulkRoleAssignment `json:"assignments,omitempty"`
 	// For assign/revoke operations
 	UserIDs  []uuid.UUID `json:"user_ids,omitempty"`
 	TenantID *uuid.UUID  `json:"tenant_id,omitempty"`
@@ -116,9 +124,13 @@ type BulkRoleRequest struct {
 
 // BulkRoleResponse represents a bulk operation response
 type BulkRoleResponse struct {
-	Success []uuid.UUID     `json:"success"`
-	Failed  []BulkRoleError `json:"failed"`
-	Total   int             `json:"total"`
+	SuccessCount int             `json:"success_count"`
+	FailureCount int             `json:"failure_count"`
+	Errors       []string        `json:"errors,omitempty"`
+	Roles        []*RoleResponse `json:"roles,omitempty"`
+	Success      []uuid.UUID     `json:"success,omitempty"`
+	Failed       []BulkRoleError `json:"failed,omitempty"`
+	Total        int             `json:"total"`
 }
 
 // BulkRoleError represents an error in bulk operation

@@ -16,6 +16,8 @@ var RepositoryModule = fx.Module("repositories",
 	fx.Provide(NewUserRepository),
 	fx.Provide(NewTenantRepository),
 	fx.Provide(NewRoleRepository),
+	fx.Provide(NewRolePermissionRepository),
+	fx.Provide(NewUserRoleRepository),
 	fx.Provide(NewPermissionRepository),
 	// TODO: Add more repository providers here
 	// fx.Provide(NewAuditRepository),
@@ -37,6 +39,16 @@ func NewTenantRepository(db *db.DB, logger *logger.Logger) tenantRepo.TenantRepo
 // NewRoleRepository creates a new role repository
 func NewRoleRepository(db *db.DB, logger *logger.Logger) roleRepo.RoleRepository {
 	return roleRepo.NewRoleRepository(db.DB)
+}
+
+// NewRolePermissionRepository creates a new role permission repository
+func NewRolePermissionRepository(db *db.DB, logger *logger.Logger) roleRepo.RolePermissionRepository {
+	return roleRepo.NewRolePermissionRepository(db.DB)
+}
+
+// NewUserRoleRepository creates a new user role repository
+func NewUserRoleRepository(db *db.DB, logger *logger.Logger) roleRepo.UserRoleRepository {
+	return roleRepo.NewUserRoleRepository(db.DB)
 }
 
 // NewPermissionRepository creates a new permission repository

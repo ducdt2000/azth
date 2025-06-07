@@ -96,6 +96,36 @@ func (r *roleRepository) GetBySlug(ctx context.Context, slug string, tenantID *u
 	return &role, nil
 }
 
+// GetByName retrieves a role by name and tenant
+func (r *roleRepository) GetByName(ctx context.Context, name string, tenantID *uuid.UUID) (*domain.Role, error) {
+	query := `
+		SELECT id, tenant_id, name, slug, description, is_system, is_global,
+			   is_default, priority, metadata, created_at, updated_at, 
+			   deleted_at, created_by, updated_by
+		FROM roles 
+		WHERE name = $1 AND deleted_at IS NULL`
+
+	args := []interface{}{name}
+
+	if tenantID != nil {
+		query += " AND (tenant_id = $2 OR is_global = true)"
+		args = append(args, *tenantID)
+	} else {
+		query += " AND (tenant_id IS NULL OR is_global = true)"
+	}
+
+	var role domain.Role
+	err := r.db.GetContext(ctx, &role, query, args...)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get role by name: %w", err)
+	}
+
+	return &role, nil
+}
+
 // Update updates an existing role
 func (r *roleRepository) Update(ctx context.Context, role *domain.Role) error {
 	query := `

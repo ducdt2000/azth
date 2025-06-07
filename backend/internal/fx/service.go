@@ -6,6 +6,8 @@ import (
 	"github.com/ducdt2000/azth/backend/internal/db"
 	permissionRepo "github.com/ducdt2000/azth/backend/internal/modules/permission/repository"
 	permissionSvc "github.com/ducdt2000/azth/backend/internal/modules/permission/service"
+	roleRepo "github.com/ducdt2000/azth/backend/internal/modules/role/repository"
+	roleSvc "github.com/ducdt2000/azth/backend/internal/modules/role/service"
 	tenantCQRS "github.com/ducdt2000/azth/backend/internal/modules/tenant/cqrs"
 	tenantSvc "github.com/ducdt2000/azth/backend/internal/modules/tenant/service"
 	userRepo "github.com/ducdt2000/azth/backend/internal/modules/user/repository"
@@ -18,6 +20,7 @@ var ServiceModule = fx.Module("services",
 	// Core services
 	fx.Provide(NewUserService),
 	fx.Provide(NewPermissionService),
+	fx.Provide(NewRoleService),
 
 	// CQRS components for tenant service
 	fx.Provide(NewTenantEventStore),
@@ -43,6 +46,17 @@ func NewTenantService(
 // NewPermissionService creates a new permission service
 func NewPermissionService(permissionRepo permissionRepo.PermissionRepository, logger *logger.Logger) permissionSvc.PermissionService {
 	return permissionSvc.NewPermissionService(permissionRepo)
+}
+
+// NewRoleService creates a new role service
+func NewRoleService(
+	roleRepo roleRepo.RoleRepository,
+	rolePermissionRepo roleRepo.RolePermissionRepository,
+	userRoleRepo roleRepo.UserRoleRepository,
+	permissionRepo permissionRepo.PermissionRepository,
+	logger *logger.Logger,
+) roleSvc.RoleService {
+	return roleSvc.NewRoleService(roleRepo, rolePermissionRepo, userRoleRepo, permissionRepo, logger)
 }
 
 // CQRS Handlers
