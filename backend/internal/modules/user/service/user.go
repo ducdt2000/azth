@@ -12,6 +12,7 @@ import (
 	"github.com/ducdt2000/azth/backend/internal/modules/user/dto"
 	"github.com/ducdt2000/azth/backend/internal/modules/user/repository"
 	"github.com/ducdt2000/azth/backend/pkg/logger"
+	"github.com/ducdt2000/azth/backend/pkg/utils"
 )
 
 // userService implements UserService interface
@@ -460,13 +461,9 @@ func (s *userService) GetUserRoles(ctx context.Context, userID uuid.UUID) ([]*dt
 
 // Helper methods
 
-// hashPassword hashes a password using bcrypt
+// hashPassword hashes a password using utils package with Argon2ID
 func (s *userService) hashPassword(password string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return "", err
-	}
-	return string(hash), nil
+	return utils.HashPassword(password, utils.PasswordHashArgon2ID)
 }
 
 // mapUserToResponse converts a domain user to response DTO
@@ -712,9 +709,8 @@ func (s *userService) ValidateUserCredentials(ctx context.Context, email, passwo
 		return nil, fmt.Errorf("account is not active")
 	}
 
-	// Verify password
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
-	if err != nil {
+	// Verify password using utils package
+	if !utils.VerifyPassword(password, user.PasswordHash) {
 		s.logger.Warn("Invalid password", "user_id", user.ID)
 		// Increment login attempts
 		_ = s.userRepo.IncrementLoginAttempts(ctx, user.ID)

@@ -7,52 +7,46 @@ import (
 
 	"github.com/ducdt2000/azth/backend/internal/domain"
 	"github.com/ducdt2000/azth/backend/internal/modules/auth/dto"
-	permRepo "github.com/ducdt2000/azth/backend/internal/modules/permission/repository"
-	roleRepo "github.com/ducdt2000/azth/backend/internal/modules/role/repository"
+	roleSvc "github.com/ducdt2000/azth/backend/internal/modules/role/service"
 	userRepo "github.com/ducdt2000/azth/backend/internal/modules/user/repository"
+	"github.com/ducdt2000/azth/backend/pkg/logger"
 	"github.com/ducdt2000/azth/backend/pkg/utils"
 	"github.com/google/uuid"
 )
 
-// JWTStrategy implements JWT-based authentication
+// JWTStrategy implements authentication using JWT tokens
 type JWTStrategy struct {
-	userRepo userRepo.UserRepository
-	roleRepo roleRepo.RoleRepository
-	permRepo permRepo.PermissionRepository
-	config   *JWTConfig
+	userRepo    userRepo.UserRepository
+	roleService roleSvc.RoleService
+	logger      *logger.Logger
+	config      *JWTConfig
 }
 
-// JWTConfig holds JWT strategy configuration
+// JWTConfig holds JWT-specific configuration
 type JWTConfig struct {
-	Secret          string        `json:"secret" yaml:"secret"`
-	Issuer          string        `json:"issuer" yaml:"issuer"`
-	Audience        string        `json:"audience" yaml:"audience"`
-	AccessTokenTTL  time.Duration `json:"access_token_ttl" yaml:"access_token_ttl"`
-	RefreshTokenTTL time.Duration `json:"refresh_token_ttl" yaml:"refresh_token_ttl"`
+	Secret           string
+	AccessTokenTTL   time.Duration
+	RefreshTokenTTL  time.Duration
+	Issuer           string
+	Audience         string
+	SigningAlgorithm string // e.g., "HS256", "RS256"
+	Algorithms       []string
+	ValidateIssuer   bool
+	ValidateIAT      bool
 }
 
-// NewJWTStrategy creates a new JWT strategy
+// NewJWTStrategy creates a new JWT authentication strategy
 func NewJWTStrategy(
 	userRepo userRepo.UserRepository,
-	roleRepo roleRepo.RoleRepository,
-	permRepo permRepo.PermissionRepository,
+	roleService roleSvc.RoleService,
+	logger *logger.Logger,
 	config *JWTConfig,
 ) *JWTStrategy {
-	if config == nil {
-		config = &JWTConfig{
-			Secret:          "default-secret-change-in-production",
-			Issuer:          "azth-auth-service",
-			Audience:        "azth-api",
-			AccessTokenTTL:  15 * time.Minute,
-			RefreshTokenTTL: 7 * 24 * time.Hour,
-		}
-	}
-
 	return &JWTStrategy{
-		userRepo: userRepo,
-		roleRepo: roleRepo,
-		permRepo: permRepo,
-		config:   config,
+		userRepo:    userRepo,
+		roleService: roleService,
+		logger:      logger,
+		config:      config,
 	}
 }
 
@@ -60,11 +54,35 @@ func NewJWTStrategy(
 func (j *JWTStrategy) Authenticate(ctx context.Context, req *dto.LoginRequest, user *domain.User) (*dto.LoginResponse, error) {
 	// Create JWT config
 	jwtConfig := &utils.JWTConfig{
-		Secret:          j.config.Secret,
-		Issuer:          j.config.Issuer,
-		Audience:        j.config.Audience,
-		AccessTokenTTL:  j.config.AccessTokenTTL,
-		RefreshTokenTTL: j.config.RefreshTokenTTL,
+		Secret:           j.config.Secret,
+		Issuer:           j.config.Issuer,
+		Audience:         j.config.Audience,
+		AccessTokenTTL:   j.config.AccessTokenTTL,
+		RefreshTokenTTL:  j.config.RefreshTokenTTL,
+		SigningAlgorithm: j.config.SigningAlgorithm,
+		Algorithms:       j.config.Algorithms,
+		ValidateIssuer:   j.config.ValidateIssuer,
+		ValidateIAT:      j.config.ValidateIAT,
+	}
+
+	// Get user roles
+	userRoles, err := j.roleService.GetUserRoles(ctx, user.ID, user.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user roles: %w", err)
+	}
+	roleSlugs := make([]string, len(userRoles))
+	for i, ur := range userRoles {
+		roleSlugs[i] = ur.Role.Slug
+	}
+
+	// Get user permissions
+	permissions, err := j.roleService.GetUserPermissions(ctx, user.ID, user.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user permissions: %w", err)
+	}
+	permissionCodes := make([]string, len(permissions))
+	for i, p := range permissions {
+		permissionCodes[i] = p.Code
 	}
 
 	// Generate access token
@@ -74,6 +92,8 @@ func (j *JWTStrategy) Authenticate(ctx context.Context, req *dto.LoginRequest, u
 		user.TenantID,
 		user.Email,
 		user.Username,
+		roleSlugs,
+		permissionCodes,
 		req.IPAddress,
 		req.UserAgent,
 	)
@@ -122,9 +142,12 @@ func (j *JWTStrategy) Authenticate(ctx context.Context, req *dto.LoginRequest, u
 func (j *JWTStrategy) ValidateToken(ctx context.Context, token string) (*AuthContext, error) {
 	// Create JWT config
 	jwtConfig := &utils.JWTConfig{
-		Secret:   j.config.Secret,
-		Issuer:   j.config.Issuer,
-		Audience: j.config.Audience,
+		Secret:         j.config.Secret,
+		Issuer:         j.config.Issuer,
+		Audience:       j.config.Audience,
+		Algorithms:     j.config.Algorithms,
+		ValidateIssuer: j.config.ValidateIssuer,
+		ValidateIAT:    j.config.ValidateIAT,
 	}
 
 	// Validate token
@@ -145,7 +168,7 @@ func (j *JWTStrategy) ValidateToken(ctx context.Context, token string) (*AuthCon
 	}
 
 	// Get user roles
-	userRoles, err := j.userRepo.GetUserRoles(ctx, user.ID)
+	userRoles, err := j.roleService.GetUserRoles(ctx, user.ID, user.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user roles: %w", err)
 	}
@@ -153,19 +176,13 @@ func (j *JWTStrategy) ValidateToken(ctx context.Context, token string) (*AuthCon
 	// Extract role names
 	roleNames := make([]string, 0)
 	for _, userRole := range userRoles {
-		role, err := j.roleRepo.GetByID(ctx, userRole.RoleID)
-		if err == nil && role != nil {
-			roleNames = append(roleNames, role.Name)
-		}
+		roleNames = append(roleNames, userRole.Role.Name)
 	}
 
-	// Get user permissions through their roles
-	permissions := make([]*domain.Permission, 0)
-	for _, userRole := range userRoles {
-		rolePermissions, err := j.permRepo.GetPermissionsByIDs(ctx, []uuid.UUID{userRole.RoleID})
-		if err == nil {
-			permissions = append(permissions, rolePermissions...)
-		}
+	// Get user permissions
+	permissions, err := j.roleService.GetUserPermissions(ctx, claims.UserID, claims.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user permissions: %w", err)
 	}
 
 	// Convert permissions to strings
@@ -193,9 +210,12 @@ func (j *JWTStrategy) ValidateToken(ctx context.Context, token string) (*AuthCon
 func (j *JWTStrategy) RefreshToken(ctx context.Context, refreshToken string) (*dto.RefreshResponse, error) {
 	// Create JWT config
 	jwtConfig := &utils.JWTConfig{
-		Secret:   j.config.Secret,
-		Issuer:   j.config.Issuer,
-		Audience: j.config.Audience,
+		Secret:         j.config.Secret,
+		Issuer:         j.config.Issuer,
+		Audience:       j.config.Audience,
+		Algorithms:     j.config.Algorithms,
+		ValidateIssuer: j.config.ValidateIssuer,
+		ValidateIAT:    j.config.ValidateIAT,
 	}
 
 	// Validate refresh token
@@ -220,6 +240,26 @@ func (j *JWTStrategy) RefreshToken(ctx context.Context, refreshToken string) (*d
 		return nil, fmt.Errorf("user account is not active")
 	}
 
+	// Get user roles
+	userRoles, err := j.roleService.GetUserRoles(ctx, user.ID, claims.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user roles: %w", err)
+	}
+	roleSlugs := make([]string, len(userRoles))
+	for i, ur := range userRoles {
+		roleSlugs[i] = ur.Role.Slug
+	}
+
+	// Get user permissions
+	permissions, err := j.roleService.GetUserPermissions(ctx, claims.UserID, claims.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user permissions: %w", err)
+	}
+	permissionCodes := make([]string, len(permissions))
+	for i, p := range permissions {
+		permissionCodes[i] = p.Code
+	}
+
 	// Generate new access token
 	newAccessToken, err := utils.GenerateAccessToken(
 		jwtConfig,
@@ -227,6 +267,8 @@ func (j *JWTStrategy) RefreshToken(ctx context.Context, refreshToken string) (*d
 		claims.TenantID,
 		claims.Email,
 		claims.Username,
+		roleSlugs,
+		permissionCodes,
 		claims.IPAddress,
 		claims.UserAgent,
 	)

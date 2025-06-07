@@ -322,50 +322,34 @@ func (m *EnhancedAuthMiddleware) validateSessionWithKV(ctx context.Context, toke
 	return authCtx, nil
 }
 
-// enhanceAuthContextWithCache enhances auth context with cached roles and permissions
+// enhanceAuthContextWithCache enhances the AuthContext with roles and permissions,
+// using cache if available.
 func (m *EnhancedAuthMiddleware) enhanceAuthContextWithCache(ctx context.Context, authCtx *strategy.AuthContext) error {
 	ctx, span := enhancedTracer.Start(ctx, "EnhancedAuthMiddleware.enhanceAuthContextWithCache")
 	defer span.End()
 
-	// Get cached roles
-	rolesCacheKey := fmt.Sprintf(UserRolesCacheKey, authCtx.UserID.String(), authCtx.TenantID.String())
-	cachedRoles, err := m.kvStore.Get(ctx, rolesCacheKey)
-	if err == nil && cachedRoles != "" {
-		var roles []string
-		if err := json.Unmarshal([]byte(cachedRoles), &roles); err == nil {
-			authCtx.Roles = roles
-		}
-	} else {
-		// Cache miss, fetch from database
-		roles, err := m.fetchUserRoles(ctx, authCtx.UserID, authCtx.TenantID)
-		if err == nil {
-			authCtx.Roles = roles
-			// Cache the roles
-			if rolesJSON, err := json.Marshal(roles); err == nil {
-				m.kvStore.Set(ctx, rolesCacheKey, string(rolesJSON), RolesCacheTTL)
-			}
-		}
+	// If the auth context from the token already has roles and permissions, use them.
+	if len(authCtx.Roles) > 0 && len(authCtx.Permissions) > 0 {
+		span.AddEvent("Roles and permissions found in JWT claims.")
+		return nil
 	}
 
-	// Get cached permissions
-	permsCacheKey := fmt.Sprintf(UserPermissionsCacheKey, authCtx.UserID.String(), authCtx.TenantID.String())
-	cachedPerms, err := m.kvStore.Get(ctx, permsCacheKey)
-	if err == nil && cachedPerms != "" {
-		var permissions []string
-		if err := json.Unmarshal([]byte(cachedPerms), &permissions); err == nil {
-			authCtx.Permissions = permissions
-		}
-	} else {
-		// Cache miss, fetch from database
-		permissions, err := m.fetchUserPermissions(ctx, authCtx.UserID, authCtx.TenantID)
-		if err == nil {
-			authCtx.Permissions = permissions
-			// Cache the permissions
-			if permsJSON, err := json.Marshal(permissions); err == nil {
-				m.kvStore.Set(ctx, permsCacheKey, string(permsJSON), PermissionsCacheTTL)
-			}
-		}
+	// Fallback to fetching from cache/DB if not in JWT
+	span.AddEvent("Roles and permissions not in JWT, fetching from cache/DB.")
+
+	// Get user roles from cache or DB
+	roles, err := m.fetchUserRoles(ctx, authCtx.UserID, authCtx.TenantID)
+	if err != nil {
+		return fmt.Errorf("failed to get user roles: %w", err)
 	}
+	authCtx.Roles = roles
+
+	// Get user permissions from cache or DB
+	permissions, err := m.fetchUserPermissions(ctx, authCtx.UserID, authCtx.TenantID)
+	if err != nil {
+		return fmt.Errorf("failed to get user permissions: %w", err)
+	}
+	authCtx.Permissions = permissions
 
 	return nil
 }

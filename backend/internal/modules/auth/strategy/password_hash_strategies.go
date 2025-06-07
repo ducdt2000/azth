@@ -50,9 +50,9 @@ type Argon2IDStrategy struct {
 // NewArgon2IDStrategy creates a new Argon2ID strategy with secure defaults
 func NewArgon2IDStrategy() *Argon2IDStrategy {
 	return &Argon2IDStrategy{
-		memory:      64 * 1024, // 64MB
-		iterations:  3,
-		parallelism: 2,
+		memory:      19456, // 19 MiB (minimum recommended configuration)
+		iterations:  2,     // 2 iterations
+		parallelism: 1,     // 1 degree of parallelism
 		saltLength:  16,
 		keyLength:   32,
 	}

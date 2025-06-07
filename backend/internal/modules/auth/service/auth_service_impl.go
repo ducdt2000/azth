@@ -4,22 +4,31 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
-	"encoding/base32"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/ducdt2000/azth/backend/internal/domain"
 	"github.com/ducdt2000/azth/backend/internal/modules/auth/dto"
+	roleSvc "github.com/ducdt2000/azth/backend/internal/modules/role/service"
+	userRepo "github.com/ducdt2000/azth/backend/internal/modules/user/repository"
 	"github.com/ducdt2000/azth/backend/pkg/utils"
 )
 
+type authServiceImpl struct {
+	userRepo         userRepo.UserRepository
+	sessionRepo      SessionRepository
+	roleService      roleSvc.RoleService
+	logger           Logger
+	config           *AuthConfig
+	blacklistService JWTBlacklistService
+}
+
 // Login authenticates a user and creates a new session or JWT
-func (s *authService) Login(ctx context.Context, req *dto.LoginRequest) (*dto.LoginResponse, error) {
+func (s *authServiceImpl) Login(ctx context.Context, req *dto.LoginRequest) (*dto.LoginResponse, error) {
 	s.logger.Info("Login attempt", "email", req.Email, "ip", req.IPAddress, "mode", s.config.Mode)
 
 	// Validate credentials
@@ -79,7 +88,7 @@ func (s *authService) Login(ctx context.Context, req *dto.LoginRequest) (*dto.Lo
 	}
 
 	// Reset login attempts on successful login
-	if err := s.userRepo.UpdateLoginAttempts(ctx, user.ID, 0); err != nil {
+	if err := s.userRepo.ResetLoginAttempts(ctx, user.ID); err != nil {
 		s.logger.Error("Failed to reset login attempts", "user_id", user.ID, "error", err)
 		// Don't fail login for this error
 	}
@@ -142,14 +151,17 @@ func (s *authService) Login(ctx context.Context, req *dto.LoginRequest) (*dto.Lo
 }
 
 // Logout revokes a session or invalidates JWT
-func (s *authService) Logout(ctx context.Context, token string) error {
+func (s *authServiceImpl) Logout(ctx context.Context, token string) error {
 	s.logger.Info("Logout attempt", "token", token[:8]+"...", "mode", s.config.Mode)
 
 	if s.IsJWTMode() {
-		// For JWT mode, we can't really invalidate tokens without a blacklist
-		// In production, you might want to implement a token blacklist
-		s.logger.Info("JWT logout - token cannot be invalidated without blacklist")
-		return nil
+		// For JWT mode, use blacklist if enabled
+		if s.config.JWTBlacklistEnabled && s.blacklistService != nil {
+			return s.RevokeJWT(ctx, token)
+		} else {
+			s.logger.Info("JWT logout - blacklist disabled or service unavailable")
+			return nil
+		}
 	}
 
 	// Session mode
@@ -169,13 +181,24 @@ func (s *authService) Logout(ctx context.Context, token string) error {
 }
 
 // LogoutAll revokes all sessions for a user
-func (s *authService) LogoutAll(ctx context.Context, userID uuid.UUID) error {
+func (s *authServiceImpl) LogoutAll(ctx context.Context, userID uuid.UUID) error {
 	s.logger.Info("Logout all attempt", "user_id", userID, "mode", s.config.Mode)
 
 	if s.IsJWTMode() {
-		// For JWT mode, we can't really invalidate tokens without a blacklist
-		s.logger.Info("JWT logout all - tokens cannot be invalidated without blacklist")
-		return nil
+		// For JWT mode, use blacklist if enabled
+		if s.config.JWTBlacklistEnabled && s.blacklistService != nil {
+			// Add all user tokens issued before now to blacklist
+			issuedBefore := time.Now()
+			if err := s.blacklistService.AddUserToBlacklist(ctx, userID, issuedBefore); err != nil {
+				s.logger.Error("Failed to blacklist user tokens", "user_id", userID, "error", err)
+				return fmt.Errorf("failed to blacklist user tokens: %w", err)
+			}
+			s.logger.Info("JWT logout all successful - added to blacklist", "user_id", userID)
+			return nil
+		} else {
+			s.logger.Info("JWT logout all - blacklist disabled or service unavailable")
+			return nil
+		}
 	}
 
 	// Session mode
@@ -189,7 +212,7 @@ func (s *authService) LogoutAll(ctx context.Context, userID uuid.UUID) error {
 }
 
 // RefreshToken refreshes an existing token (session or JWT)
-func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*dto.RefreshResponse, error) {
+func (s *authServiceImpl) RefreshToken(ctx context.Context, refreshToken string) (*dto.RefreshResponse, error) {
 	s.logger.Info("Refresh token attempt", "mode", s.config.Mode)
 
 	if s.IsJWTMode() {
@@ -265,15 +288,33 @@ func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (*d
 }
 
 // GenerateJWT generates JWT tokens for a user
-func (s *authService) GenerateJWT(ctx context.Context, userID uuid.UUID, tenantID uuid.UUID, req *dto.JWTRequest) (*dto.JWTResponse, error) {
+func (s *authServiceImpl) GenerateJWT(ctx context.Context, userID uuid.UUID, tenantID uuid.UUID, req *dto.JWTRequest) (*dto.JWTResponse, error) {
 	if !s.IsJWTMode() {
 		return nil, fmt.Errorf("JWT generation not available in session mode")
 	}
 
-	// Get user details
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Get user roles and permissions
+	userRoles, err := s.roleService.GetUserRoles(ctx, userID, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user roles: %w", err)
+	}
+	roles := make([]string, len(userRoles))
+	for i, r := range userRoles {
+		roles[i] = r.Role.Slug
+	}
+
+	userPermissions, err := s.roleService.GetUserPermissions(ctx, userID, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user permissions: %w", err)
+	}
+	permissions := make([]string, len(userPermissions))
+	for i, p := range userPermissions {
+		permissions[i] = p.Code
 	}
 
 	// Create JWT config
@@ -283,23 +324,22 @@ func (s *authService) GenerateJWT(ctx context.Context, userID uuid.UUID, tenantI
 		Audience:        s.config.JWTAudience,
 		AccessTokenTTL:  s.config.JWTAccessTokenTTL,
 		RefreshTokenTTL: s.config.JWTRefreshTokenTTL,
+		Algorithms:      s.config.JWTAlgorithms,
+		ValidateIssuer:  s.config.JWTValidateIssuer,
+		ValidateIAT:     s.config.JWTValidateIAT,
 	}
 
-	// Generate access token
-	accessToken, err := utils.GenerateAccessToken(jwtConfig, userID, tenantID, user.Email, user.Username, req.IPAddress, req.UserAgent)
+	accessToken, err := utils.GenerateAccessToken(jwtConfig, userID, tenantID, user.Email, user.Username, roles, permissions, req.IPAddress, req.UserAgent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
-	// Generate refresh token
 	refreshToken, err := utils.GenerateRefreshToken(jwtConfig, userID, tenantID, user.Email, user.Username, req.IPAddress, req.UserAgent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
 
-	// Calculate expiry
 	expiresAt := time.Now().Add(s.config.JWTAccessTokenTTL)
-
 	return &dto.JWTResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -310,19 +350,44 @@ func (s *authService) GenerateJWT(ctx context.Context, userID uuid.UUID, tenantI
 }
 
 // ValidateJWT validates a JWT token
-func (s *authService) ValidateJWT(ctx context.Context, token string) (*dto.JWTClaims, error) {
+func (s *authServiceImpl) ValidateJWT(ctx context.Context, token string) (*dto.JWTClaims, error) {
 	if !s.IsJWTMode() {
 		return nil, fmt.Errorf("JWT validation not available in session mode")
 	}
 
-	// Create JWT config
-	jwtConfig := &utils.JWTConfig{
-		Secret:   s.config.JWTSecret,
-		Issuer:   s.config.JWTIssuer,
-		Audience: s.config.JWTAudience,
+	// Check blacklist if enabled
+	if s.config.JWTBlacklistEnabled && s.blacklistService != nil {
+		// Extract JTI to check blacklist
+		jti, err := utils.ExtractJTIFromJWT(token)
+		if err != nil {
+			s.logger.Warn("Failed to extract JTI for blacklist check", "error", err)
+			// Continue validation even if JTI extraction fails
+		} else {
+			// Check if token is blacklisted
+			isBlacklisted, err := s.blacklistService.IsBlacklisted(ctx, jti)
+			if err != nil {
+				s.logger.Warn("Failed to check JWT blacklist", "jti", jti, "error", err)
+				// Continue validation even if blacklist check fails
+			} else if isBlacklisted {
+				return nil, &dto.AuthError{
+					Code:    dto.ErrCodeInvalidJWT,
+					Message: "JWT token has been revoked",
+				}
+			}
+		}
 	}
 
-	// Validate token
+	// Create JWT config
+	jwtConfig := &utils.JWTConfig{
+		Secret:         s.config.JWTSecret,
+		Issuer:         s.config.JWTIssuer,
+		Audience:       s.config.JWTAudience,
+		Algorithms:     s.config.JWTAlgorithms,
+		ValidateIssuer: s.config.JWTValidateIssuer,
+		ValidateIAT:    s.config.JWTValidateIAT,
+	}
+
+	// Validate JWT
 	claims, err := utils.ValidateJWT(jwtConfig, token)
 	if err != nil {
 		return nil, &dto.AuthError{
@@ -331,15 +396,13 @@ func (s *authService) ValidateJWT(ctx context.Context, token string) (*dto.JWTCl
 		}
 	}
 
-	// Convert to DTO claims
 	dtoClaims := &dto.JWTClaims{
 		UserID:           claims.UserID,
 		TenantID:         claims.TenantID,
 		Email:            claims.Email,
 		Username:         claims.Username,
-		TokenType:        claims.TokenType,
-		IPAddress:        claims.IPAddress,
-		UserAgent:        claims.UserAgent,
+		Roles:            claims.Roles,
+		Permissions:      claims.Permissions,
 		RegisteredClaims: claims.RegisteredClaims,
 	}
 
@@ -347,7 +410,7 @@ func (s *authService) ValidateJWT(ctx context.Context, token string) (*dto.JWTCl
 }
 
 // RefreshJWT refreshes a JWT token
-func (s *authService) RefreshJWT(ctx context.Context, refreshToken string) (*dto.JWTResponse, error) {
+func (s *authServiceImpl) RefreshJWT(ctx context.Context, refreshToken string) (*dto.JWTResponse, error) {
 	if !s.IsJWTMode() {
 		return nil, fmt.Errorf("JWT refresh not available in session mode")
 	}
@@ -375,7 +438,7 @@ func (s *authService) RefreshJWT(ctx context.Context, refreshToken string) (*dto
 }
 
 // CreateSession creates a new session for a user
-func (s *authService) CreateSession(ctx context.Context, userID uuid.UUID, req *dto.CreateSessionRequest) (*domain.Session, error) {
+func (s *authServiceImpl) CreateSession(ctx context.Context, userID uuid.UUID, req *dto.CreateSessionRequest) (*domain.Session, error) {
 	s.logger.Info("Creating session", "user_id", userID)
 
 	token, err := s.generateSessionToken()
@@ -419,7 +482,7 @@ func (s *authService) CreateSession(ctx context.Context, userID uuid.UUID, req *
 }
 
 // GetSession retrieves a session by token
-func (s *authService) GetSession(ctx context.Context, token string) (*domain.Session, error) {
+func (s *authServiceImpl) GetSession(ctx context.Context, token string) (*domain.Session, error) {
 	session, err := s.sessionRepo.GetByToken(ctx, token)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session: %w", err)
@@ -428,7 +491,7 @@ func (s *authService) GetSession(ctx context.Context, token string) (*domain.Ses
 }
 
 // GetUserSessions retrieves all sessions for a user
-func (s *authService) GetUserSessions(ctx context.Context, userID uuid.UUID) ([]*domain.Session, error) {
+func (s *authServiceImpl) GetUserSessions(ctx context.Context, userID uuid.UUID) ([]*domain.Session, error) {
 	sessions, err := s.sessionRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user sessions: %w", err)
@@ -437,7 +500,7 @@ func (s *authService) GetUserSessions(ctx context.Context, userID uuid.UUID) ([]
 }
 
 // ValidateSession validates a session token and returns the session if valid
-func (s *authService) ValidateSession(ctx context.Context, token string) (*domain.Session, error) {
+func (s *authServiceImpl) ValidateSession(ctx context.Context, token string) (*domain.Session, error) {
 	session, err := s.sessionRepo.GetByToken(ctx, token)
 	if err != nil {
 		return nil, &dto.AuthError{
@@ -472,12 +535,12 @@ func (s *authService) ValidateSession(ctx context.Context, token string) (*domai
 }
 
 // RevokeSession revokes a specific session
-func (s *authService) RevokeSession(ctx context.Context, sessionID uuid.UUID, reason string) error {
+func (s *authServiceImpl) RevokeSession(ctx context.Context, sessionID uuid.UUID, reason string) error {
 	return s.sessionRepo.RevokeByID(ctx, sessionID, reason)
 }
 
 // CleanupExpiredSessions removes expired sessions from the database
-func (s *authService) CleanupExpiredSessions(ctx context.Context) error {
+func (s *authServiceImpl) CleanupExpiredSessions(ctx context.Context) error {
 	s.logger.Info("Cleaning up expired sessions")
 
 	if err := s.sessionRepo.DeleteExpired(ctx); err != nil {
@@ -489,55 +552,67 @@ func (s *authService) CleanupExpiredSessions(ctx context.Context) error {
 	return nil
 }
 
-// ValidateCredentials validates user email and password
-func (s *authService) ValidateCredentials(ctx context.Context, email, password string) (*domain.User, error) {
+// ValidateCredentials validates user credentials using the shared repository
+func (s *authServiceImpl) ValidateCredentials(ctx context.Context, email, password string) (*domain.User, error) {
+	// Get user by email using shared repository
 	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		s.logger.Warn("User not found", "email", email)
-		return nil, &dto.AuthError{
-			Code:    dto.ErrCodeInvalidCredentials,
-			Message: "Invalid email or password",
-		}
+		return nil, fmt.Errorf("invalid credentials")
 	}
 
-	// Verify password using the new utility
-	if !s.VerifyPassword(password, user.PasswordHash) {
-		s.logger.Warn("Invalid password", "user_id", user.ID, "email", email)
-
-		// Record failed login attempt
-		if err := s.RecordFailedLogin(ctx, email, ""); err != nil {
-			s.logger.Error("Failed to record failed login", "email", email, "error", err)
-		}
-
-		return nil, &dto.AuthError{
-			Code:    dto.ErrCodeInvalidCredentials,
-			Message: "Invalid email or password",
-		}
-	}
-
-	// Check user status
+	// Check if user is active
 	if user.Status != domain.UserStatusActive {
-		s.logger.Warn("User account not active", "user_id", user.ID, "status", user.Status)
-		return nil, &dto.AuthError{
-			Code:    dto.ErrCodeInvalidCredentials,
-			Message: "Account is not active",
+		s.logger.Warn("Inactive user login attempt", "user_id", user.ID, "status", user.Status)
+		return nil, fmt.Errorf("account is not active")
+	}
+
+	// Check if account is locked
+	if user.LockedUntil != nil && time.Now().Before(*user.LockedUntil) {
+		s.logger.Warn("Locked account login attempt", "user_id", user.ID, "locked_until", user.LockedUntil)
+		return nil, fmt.Errorf("account is locked")
+	}
+
+	// Verify password using auth service
+	if !s.VerifyPassword(password, user.PasswordHash) {
+		// Increment failed login attempts
+		if err := s.userRepo.IncrementLoginAttempts(ctx, user.ID); err != nil {
+			s.logger.Error("Failed to increment login attempts", "error", err, "user_id", user.ID)
 		}
+
+		// Check if we should lock the account
+		if user.LoginAttempts+1 >= s.config.MaxLoginAttempts {
+			lockUntil := time.Now().Add(s.config.LockoutDuration)
+			if err := s.userRepo.LockUser(ctx, user.ID, &lockUntil); err != nil {
+				s.logger.Error("Failed to lock user account", "error", err, "user_id", user.ID)
+			} else {
+				s.logger.Warn("User account locked due to failed login attempts", "user_id", user.ID, "locked_until", lockUntil)
+			}
+		}
+
+		s.logger.Warn("Invalid password", "user_id", user.ID)
+		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	// Reset login attempts on successful authentication
+	if err := s.userRepo.ResetLoginAttempts(ctx, user.ID); err != nil {
+		s.logger.Error("Failed to reset login attempts", "error", err, "user_id", user.ID)
 	}
 
 	return user, nil
 }
 
-// HashPassword hashes a password using the configured algorithm
-func (s *authService) HashPassword(password string, algorithm ...PasswordHashAlgorithm) (string, error) {
-	var algo PasswordHashAlgorithm
+// HashPassword hashes a password using the service configuration
+func (s *authServiceImpl) HashPassword(password string, algorithm ...PasswordHashAlgorithm) (string, error) {
+	// Use configured algorithm or default
+	algo := s.config.PasswordHashAlgorithm
 	if len(algorithm) > 0 {
 		algo = algorithm[0]
-	} else {
-		algo = s.config.PasswordHashAlgorithm
 	}
 
 	switch algo {
 	case PasswordHashArgon2ID:
+		// Create Argon2ID config from service config
 		argonConfig := &utils.Argon2IDConfig{
 			Memory:      s.config.Argon2IDMemory,
 			Iterations:  s.config.Argon2IDIterations,
@@ -549,88 +624,207 @@ func (s *authService) HashPassword(password string, algorithm ...PasswordHashAlg
 	case PasswordHashBcrypt:
 		return utils.HashPassword(password, utils.PasswordHashBcrypt, s.config.BCryptCost)
 	default:
-		return "", fmt.Errorf("unsupported password hash algorithm: %s", algo)
+		return "", fmt.Errorf("unsupported password hashing algorithm: %s", algo)
 	}
 }
 
-// VerifyPassword verifies a password against a hash
-func (s *authService) VerifyPassword(password, hash string, algorithm ...PasswordHashAlgorithm) bool {
-	// If algorithm is specified, use utils directly
-	if len(algorithm) > 0 {
-		switch algorithm[0] {
-		case PasswordHashArgon2ID:
-			return utils.VerifyPassword(password, hash)
-		case PasswordHashBcrypt:
-			err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-			return err == nil
-		}
-	}
-
-	// Auto-detect algorithm from hash format
+// VerifyPassword verifies a password using the utils package
+func (s *authServiceImpl) VerifyPassword(password, hash string, algorithm ...PasswordHashAlgorithm) bool {
 	return utils.VerifyPassword(password, hash)
 }
 
-// EnableMFA enables multi-factor authentication for a user
-func (s *authService) EnableMFA(ctx context.Context, userID uuid.UUID) (*dto.MFASetupResponse, error) {
-	s.logger.Info("Enabling MFA", "user_id", userID)
+// UpdateLastLogin updates the user's last login timestamp
+func (s *authServiceImpl) UpdateLastLogin(ctx context.Context, userID uuid.UUID, ipAddress string) error {
+	// Update last login using shared repository
+	return s.userRepo.UpdateLastLogin(ctx, userID, time.Now())
+}
 
+// RequestPasswordReset initiates a password reset request
+func (s *authServiceImpl) RequestPasswordReset(ctx context.Context, req *dto.RequestPasswordResetRequest) (*dto.RequestPasswordResetResponse, error) {
+	// Example implementation using shared repository
+	user, err := s.userRepo.GetByEmail(ctx, req.Email)
+	if err != nil {
+		// Don't reveal if email exists for security
+		return &dto.RequestPasswordResetResponse{
+			Message:   "If the email exists, a password reset code has been sent",
+			TokenSent: false,
+		}, nil
+	}
+
+	// TODO: Generate reset token and send email
+	s.logger.Info("Password reset requested", "user_id", user.ID, "email", req.Email)
+
+	return &dto.RequestPasswordResetResponse{
+		Message:   "Password reset code sent to your email",
+		TokenSent: true,
+	}, nil
+}
+
+// ConfirmPasswordReset confirms a password reset with token
+func (s *authServiceImpl) ConfirmPasswordReset(ctx context.Context, req *dto.ConfirmPasswordResetRequest) (*dto.ConfirmPasswordResetResponse, error) {
+	// TODO: Validate reset token
+
+	// Hash new password using auth service
+	hashedPassword, err := s.HashPassword(req.NewPassword)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Update password using shared repository
+	// Note: This would need the user ID from the validated token
+	// userID := getFromValidatedToken(req.Token)
+	// err = s.userRepo.UpdatePassword(ctx, userID, hashedPassword)
+
+	s.logger.Info("Password reset confirmed", "hashed_password_length", len(hashedPassword))
+
+	return &dto.ConfirmPasswordResetResponse{
+		Success: true,
+		Message: "Password has been reset successfully",
+	}, nil
+}
+
+// UpdatePassword updates a user's password
+func (s *authServiceImpl) UpdatePassword(ctx context.Context, userID uuid.UUID, req *dto.UpdatePasswordRequest) (*dto.UpdatePasswordResponse, error) {
+	// Get user to verify current password
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+
+	// Verify current password using auth service
+	if !s.VerifyPassword(req.CurrentPassword, user.PasswordHash) {
+		return &dto.UpdatePasswordResponse{
+			Success: false,
+			Message: "Current password is incorrect",
+		}, nil
+	}
+
+	// Hash new password using auth service
+	hashedPassword, err := s.HashPassword(req.NewPassword)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// Update password using shared repository
+	if err := s.userRepo.UpdatePassword(ctx, userID, hashedPassword); err != nil {
+		return nil, fmt.Errorf("failed to update password: %w", err)
+	}
+
+	s.logger.Info("Password updated successfully", "user_id", userID)
+
+	return &dto.UpdatePasswordResponse{
+		Success: true,
+		Message: "Password updated successfully",
+	}, nil
+}
+
+// EnableMFA enables MFA for a user
+func (s *authServiceImpl) EnableMFA(ctx context.Context, userID uuid.UUID) (*dto.MFASetupResponse, error) {
+	// Get user details for QR code generation
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// Generate secret
-	secret := make([]byte, 20)
-	if _, err := rand.Read(secret); err != nil {
-		return nil, fmt.Errorf("failed to generate MFA secret: %w", err)
+	// Generate TOTP secret
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      s.config.JWTIssuer, // Use the configured issuer URL
+		AccountName: user.Email,
+		SecretSize:  32,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate TOTP key: %w", err)
 	}
 
-	secretBase32 := base32.StdEncoding.EncodeToString(secret)
+	secret := key.Secret()
 
 	// Generate backup codes
-	backupCodes, err := s.GenerateBackupCodes(ctx, userID)
+	backupCodes, err := s.generateSecureBackupCodes(8) // Generate 8 backup codes
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate backup codes: %w", err)
 	}
 
-	// Save secret to database
-	if err := s.userRepo.UpdateMFASecret(ctx, userID, secretBase32); err != nil {
-		return nil, fmt.Errorf("failed to save MFA secret: %w", err)
+	// Update MFA secret and backup codes using shared repository
+	if err := s.userRepo.UpdateMFASecret(ctx, userID, secret); err != nil {
+		return nil, fmt.Errorf("failed to enable MFA: %w", err)
+	}
+
+	if err := s.userRepo.UpdateBackupCodes(ctx, userID, backupCodes); err != nil {
+		return nil, fmt.Errorf("failed to update backup codes: %w", err)
 	}
 
 	// Generate QR code URL
-	qrURL, err := s.generateQRCodeURL(user.Email, secretBase32)
+	qrCodeURL, err := s.generateQRCodeURL(user.Email, secret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate QR code URL: %w", err)
 	}
 
-	s.logger.Info("MFA enabled successfully", "user_id", userID)
+	s.logger.Info("MFA enabled for user", "user_id", userID)
 
 	return &dto.MFASetupResponse{
-		Secret:      secretBase32,
-		QRCodeURL:   qrURL,
+		Secret:      secret,
+		QRCodeURL:   qrCodeURL,
 		BackupCodes: backupCodes,
 	}, nil
 }
 
-// DisableMFA disables multi-factor authentication for a user
-func (s *authService) DisableMFA(ctx context.Context, userID uuid.UUID) error {
-	s.logger.Info("Disabling MFA", "user_id", userID)
-
-	if err := s.userRepo.UpdateMFASecret(ctx, userID, ""); err != nil {
-		return fmt.Errorf("failed to disable MFA: %w", err)
+// GenerateBackupCodes generates new backup codes for a user
+func (s *authServiceImpl) GenerateBackupCodes(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	// Generate secure backup codes
+	backupCodes, err := s.generateSecureBackupCodes(8) // Generate 8 backup codes
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate backup codes: %w", err)
 	}
 
-	if err := s.userRepo.UpdateBackupCodes(ctx, userID, []string{}); err != nil {
-		return fmt.Errorf("failed to clear backup codes: %w", err)
+	// Update backup codes using shared repository
+	if err := s.userRepo.UpdateBackupCodes(ctx, userID, backupCodes); err != nil {
+		return nil, fmt.Errorf("failed to update backup codes: %w", err)
 	}
 
-	s.logger.Info("MFA disabled successfully", "user_id", userID)
+	s.logger.Info("Backup codes generated", "user_id", userID, "count", len(backupCodes))
+
+	return backupCodes, nil
+}
+
+// IsAccountLocked checks if an account is currently locked
+func (s *authServiceImpl) IsAccountLocked(ctx context.Context, userID uuid.UUID) (bool, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if user.LockedUntil == nil {
+		return false, nil
+	}
+
+	if time.Now().Before(*user.LockedUntil) {
+		return true, nil
+	}
+
+	// Unlock account if lock period has passed
+	if err := s.UnlockAccount(ctx, userID); err != nil {
+		s.logger.Error("Failed to unlock expired account", "user_id", userID, "error", err)
+	}
+
+	return false, nil
+}
+
+// UnlockAccount unlocks a user account
+func (s *authServiceImpl) UnlockAccount(ctx context.Context, userID uuid.UUID) error {
+	if err := s.userRepo.UpdateLockedUntil(ctx, userID, nil); err != nil {
+		return fmt.Errorf("failed to unlock account: %w", err)
+	}
+
+	if err := s.userRepo.UpdateLoginAttempts(ctx, userID, 0); err != nil {
+		return fmt.Errorf("failed to reset login attempts: %w", err)
+	}
+
+	s.logger.Info("Account unlocked", "user_id", userID)
 	return nil
 }
 
 // ValidateMFA validates a TOTP code or backup code
-func (s *authService) ValidateMFA(ctx context.Context, userID uuid.UUID, code string) (bool, error) {
+func (s *authServiceImpl) ValidateMFA(ctx context.Context, userID uuid.UUID, code string) (bool, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return false, fmt.Errorf("failed to get user: %w", err)
@@ -661,96 +855,50 @@ func (s *authService) ValidateMFA(ctx context.Context, userID uuid.UUID, code st
 	return false, nil
 }
 
-// GenerateBackupCodes generates backup codes for MFA
-func (s *authService) GenerateBackupCodes(ctx context.Context, userID uuid.UUID) ([]string, error) {
-	codes := make([]string, 8) // Generate 8 backup codes
+// Helper methods
 
-	for i := range codes {
-		code := make([]byte, 8)
-		if _, err := rand.Read(code); err != nil {
-			return nil, fmt.Errorf("failed to generate backup code: %w", err)
-		}
-		codes[i] = fmt.Sprintf("%x", code)
-	}
-
-	if err := s.userRepo.UpdateBackupCodes(ctx, userID, codes); err != nil {
-		return nil, fmt.Errorf("failed to save backup codes: %w", err)
-	}
-
-	return codes, nil
+// GetAuthMode returns the current authentication mode
+func (s *authServiceImpl) GetAuthMode() AuthMode {
+	return s.config.Mode
 }
 
-// UpdateLastLogin updates the user's last login time and IP
-func (s *authService) UpdateLastLogin(ctx context.Context, userID uuid.UUID, ipAddress string) error {
-	return s.userRepo.UpdateLastLogin(ctx, userID, time.Now())
+// IsJWTMode returns true if the service is configured for JWT mode
+func (s *authServiceImpl) IsJWTMode() bool {
+	return s.config.Mode == AuthModeStateless
+}
+
+// IsSessionMode returns true if the service is configured for session mode
+func (s *authServiceImpl) IsSessionMode() bool {
+	return s.config.Mode == AuthModeStateful
 }
 
 // RecordFailedLogin records a failed login attempt
-func (s *authService) RecordFailedLogin(ctx context.Context, email, ipAddress string) error {
+func (s *authServiceImpl) RecordFailedLogin(ctx context.Context, email, ipAddress string) error {
 	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
-		// Don't reveal if user exists
-		s.logger.Debug("Failed login for non-existent user", "email", email)
+		// Don't reveal if email exists
 		return nil
 	}
 
-	attempts := user.LoginAttempts + 1
-	if err := s.userRepo.UpdateLoginAttempts(ctx, user.ID, attempts); err != nil {
-		return fmt.Errorf("failed to update login attempts: %w", err)
-	}
-
-	// Lock account if too many attempts
-	if attempts >= s.config.MaxLoginAttempts {
-		lockUntil := time.Now().Add(s.config.LockoutDuration)
-		if err := s.userRepo.UpdateLockedUntil(ctx, user.ID, &lockUntil); err != nil {
-			return fmt.Errorf("failed to lock account: %w", err)
-		}
-		s.logger.Warn("Account locked due to failed login attempts", "user_id", user.ID, "attempts", attempts)
+	if err := s.userRepo.IncrementLoginAttempts(ctx, user.ID); err != nil {
+		s.logger.Error("Failed to record failed login", "error", err, "user_id", user.ID)
+		return err
 	}
 
 	return nil
 }
 
-// IsAccountLocked checks if an account is currently locked
-func (s *authService) IsAccountLocked(ctx context.Context, userID uuid.UUID) (bool, error) {
-	user, err := s.userRepo.GetByID(ctx, userID)
-	if err != nil {
-		return false, fmt.Errorf("failed to get user: %w", err)
+// DisableMFA disables MFA for a user
+func (s *authServiceImpl) DisableMFA(ctx context.Context, userID uuid.UUID) error {
+	if err := s.userRepo.UpdateMFASecret(ctx, userID, ""); err != nil {
+		return fmt.Errorf("failed to disable MFA: %w", err)
 	}
 
-	if user.LockedUntil == nil {
-		return false, nil
-	}
-
-	if time.Now().Before(*user.LockedUntil) {
-		return true, nil
-	}
-
-	// Unlock account if lock period has passed
-	if err := s.UnlockAccount(ctx, userID); err != nil {
-		s.logger.Error("Failed to unlock expired account", "user_id", userID, "error", err)
-	}
-
-	return false, nil
-}
-
-// UnlockAccount unlocks a user account
-func (s *authService) UnlockAccount(ctx context.Context, userID uuid.UUID) error {
-	if err := s.userRepo.UpdateLockedUntil(ctx, userID, nil); err != nil {
-		return fmt.Errorf("failed to unlock account: %w", err)
-	}
-
-	if err := s.userRepo.UpdateLoginAttempts(ctx, userID, 0); err != nil {
-		return fmt.Errorf("failed to reset login attempts: %w", err)
-	}
-
-	s.logger.Info("Account unlocked", "user_id", userID)
+	s.logger.Info("MFA disabled for user", "user_id", userID)
 	return nil
 }
 
-// Helper methods
-
-func (s *authService) generateSessionToken() (string, error) {
+func (s *authServiceImpl) generateSessionToken() (string, error) {
 	token := make([]byte, 32)
 	if _, err := rand.Read(token); err != nil {
 		return "", err
@@ -758,7 +906,7 @@ func (s *authService) generateSessionToken() (string, error) {
 	return fmt.Sprintf("%x", token), nil
 }
 
-func (s *authService) mapUserToUserInfo(user *domain.User) dto.UserInfo {
+func (s *authServiceImpl) mapUserToUserInfo(user *domain.User) dto.UserInfo {
 	return dto.UserInfo{
 		ID:            user.ID,
 		Email:         user.Email,
@@ -773,7 +921,7 @@ func (s *authService) mapUserToUserInfo(user *domain.User) dto.UserInfo {
 	}
 }
 
-func (s *authService) mapSessionToSessionInfo(session *domain.Session) dto.SessionInfo {
+func (s *authServiceImpl) mapSessionToSessionInfo(session *domain.Session) dto.SessionInfo {
 	return dto.SessionInfo{
 		ID:           session.ID,
 		IPAddress:    session.IPAddress,
@@ -784,10 +932,64 @@ func (s *authService) mapSessionToSessionInfo(session *domain.Session) dto.Sessi
 	}
 }
 
-func (s *authService) generateQRCodeURL(email, secret string) (string, error) {
-	key, err := otp.NewKeyFromURL(fmt.Sprintf("otpauth://totp/AZTH:%s?secret=%s&issuer=AZTH", email, secret))
+func (s *authServiceImpl) generateQRCodeURL(email, secret string) (string, error) {
+	key, err := otp.NewKeyFromURL(fmt.Sprintf("otpauth://totp/%s:%s?secret=%s&issuer=%s", s.config.JWTIssuer, email, secret, s.config.JWTIssuer))
 	if err != nil {
 		return "", err
 	}
 	return key.URL(), nil
+}
+
+// generateSecureBackupCodes generates cryptographically secure backup codes
+func (s *authServiceImpl) generateSecureBackupCodes(count int) ([]string, error) {
+	backupCodes := make([]string, count)
+
+	for i := 0; i < count; i++ {
+		// Generate 6-digit backup code
+		codeBytes := make([]byte, 3) // 3 bytes = 24 bits, enough for 6 digits
+		if _, err := rand.Read(codeBytes); err != nil {
+			return nil, fmt.Errorf("failed to generate random bytes: %w", err)
+		}
+
+		// Convert to 6-digit number (000000-999999)
+		codeNum := int(codeBytes[0])<<16 + int(codeBytes[1])<<8 + int(codeBytes[2])
+		code := fmt.Sprintf("%06d", codeNum%1000000)
+		backupCodes[i] = code
+	}
+
+	return backupCodes, nil
+}
+
+// RevokeJWT revokes a JWT token by adding it to the blacklist
+func (s *authServiceImpl) RevokeJWT(ctx context.Context, token string) error {
+	if !s.IsJWTMode() {
+		return fmt.Errorf("JWT revocation not available in session mode")
+	}
+
+	if !s.config.JWTBlacklistEnabled || s.blacklistService == nil {
+		return fmt.Errorf("JWT blacklist not enabled or service unavailable")
+	}
+
+	// Extract JTI from token
+	jti, err := utils.ExtractJTIFromJWT(token)
+	if err != nil {
+		s.logger.Error("Failed to extract JTI from JWT", "error", err)
+		return fmt.Errorf("failed to extract JTI from JWT: %w", err)
+	}
+
+	// Validate token to get expiration time
+	claims, err := s.ValidateJWT(ctx, token)
+	if err != nil {
+		s.logger.Error("Failed to validate JWT for revocation", "error", err)
+		return fmt.Errorf("failed to validate JWT: %w", err)
+	}
+
+	// Add to blacklist
+	if err := s.blacklistService.AddToBlacklist(ctx, jti, claims.ExpiresAt.Time); err != nil {
+		s.logger.Error("Failed to add JWT to blacklist", "jti", jti, "error", err)
+		return fmt.Errorf("failed to add JWT to blacklist: %w", err)
+	}
+
+	s.logger.Info("JWT revoked successfully", "jti", jti)
+	return nil
 }

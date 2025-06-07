@@ -10,22 +10,28 @@ import (
 
 // JWTConfig holds JWT configuration
 type JWTConfig struct {
-	Secret          string
-	Issuer          string
-	Audience        string
-	AccessTokenTTL  time.Duration
-	RefreshTokenTTL time.Duration
+	Secret           string
+	Issuer           string
+	Audience         string
+	AccessTokenTTL   time.Duration
+	RefreshTokenTTL  time.Duration
+	Algorithms       []string
+	ValidateIssuer   bool
+	ValidateIAT      bool
+	SigningAlgorithm string
 }
 
 // JWTClaims represents JWT token claims
 type JWTClaims struct {
-	UserID    uuid.UUID `json:"user_id"`
-	TenantID  uuid.UUID `json:"tenant_id"`
-	Email     string    `json:"email"`
-	Username  string    `json:"username"`
-	TokenType string    `json:"token_type"` // "access" or "refresh"
-	IPAddress string    `json:"ip_address,omitempty"`
-	UserAgent string    `json:"user_agent,omitempty"`
+	UserID      uuid.UUID `json:"user_id"`
+	TenantID    uuid.UUID `json:"tenant_id"`
+	Email       string    `json:"email"`
+	Username    string    `json:"username"`
+	Roles       []string  `json:"roles"`
+	Permissions []string  `json:"permissions"`
+	TokenType   string    `json:"token_type"` // "access" or "refresh"
+	IPAddress   string    `json:"ip_address,omitempty"`
+	UserAgent   string    `json:"user_agent,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -71,53 +77,58 @@ func GenerateJWT(config *JWTConfig, claims *JWTClaims) (string, error) {
 
 // ValidateJWT validates a JWT token and returns the claims
 func ValidateJWT(config *JWTConfig, tokenString string) (*JWTClaims, error) {
+	// Build validation options
+	opts := []jwt.ParserOption{
+		jwt.WithAudience(config.Audience),
+		jwt.WithTimeFunc(time.Now),
+	}
+
+	if config.ValidateIssuer {
+		opts = append(opts, jwt.WithIssuer(config.Issuer))
+	}
+
+	if config.ValidateIAT {
+		opts = append(opts, jwt.WithIssuedAt())
+	}
+
+	if len(config.Algorithms) > 0 {
+		opts = append(opts, jwt.WithValidMethods(config.Algorithms))
+	}
+
 	// Parse the token
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
-		// Validate the signing method
+		// Check signing method
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(config.Secret), nil
-	})
+	}, opts...)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse JWT token: %w", err)
+		return nil, fmt.Errorf("failed to parse or validate JWT token: %w", err)
 	}
 
 	// Extract claims
 	claims, ok := token.Claims.(*JWTClaims)
-	if !ok {
-		return nil, fmt.Errorf("invalid token claims")
-	}
-
-	// Validate token
-	if !token.Valid {
-		return nil, fmt.Errorf("invalid token")
-	}
-
-	// Additional validation
-	if claims.Issuer != config.Issuer {
-		return nil, fmt.Errorf("invalid token issuer")
-	}
-
-	// Check if token has expired
-	if time.Now().After(claims.ExpiresAt.Time) {
-		return nil, fmt.Errorf("token has expired")
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("invalid token or claims")
 	}
 
 	return claims, nil
 }
 
 // GenerateAccessToken generates an access token
-func GenerateAccessToken(config *JWTConfig, userID, tenantID uuid.UUID, email, username, ipAddress, userAgent string) (string, error) {
+func GenerateAccessToken(config *JWTConfig, userID, tenantID uuid.UUID, email, username string, roles, permissions []string, ipAddress, userAgent string) (string, error) {
 	claims := &JWTClaims{
-		UserID:    userID,
-		TenantID:  tenantID,
-		Email:     email,
-		Username:  username,
-		TokenType: TokenTypeAccess,
-		IPAddress: ipAddress,
-		UserAgent: userAgent,
+		UserID:      userID,
+		TenantID:    tenantID,
+		Email:       email,
+		Username:    username,
+		Roles:       roles,
+		Permissions: permissions,
+		TokenType:   TokenTypeAccess,
+		IPAddress:   ipAddress,
+		UserAgent:   userAgent,
 	}
 
 	return GenerateJWT(config, claims)
@@ -147,22 +158,21 @@ func ExtractTokenFromBearer(authHeader string) string {
 	return ""
 }
 
-// ExtractJTIFromJWT extracts the JTI (JWT ID) from a JWT token without full validation
+// ExtractJTIFromJWT extracts the JTI (JWT ID) from a JWT token
 func ExtractJTIFromJWT(tokenString string) (string, error) {
-	// Parse token without verification to extract JTI
-	token, _, err := new(jwt.Parser).ParseUnverified(tokenString, &JWTClaims{})
+	// Parse the token without validation to extract the JTI
+	token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
 	if err != nil {
-		return "", fmt.Errorf("failed to parse JWT token: %w", err)
+		return "", fmt.Errorf("failed to parse JWT: %w", err)
 	}
 
-	claims, ok := token.Claims.(*JWTClaims)
-	if !ok {
-		return "", fmt.Errorf("invalid token claims")
+	if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		if jti, exists := claims["jti"]; exists {
+			if jtiStr, ok := jti.(string); ok {
+				return jtiStr, nil
+			}
+		}
 	}
 
-	if claims.ID == "" {
-		return "", fmt.Errorf("JWT token missing JTI claim")
-	}
-
-	return claims.ID, nil
+	return "", fmt.Errorf("JTI not found in JWT token")
 }

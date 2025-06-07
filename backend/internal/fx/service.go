@@ -3,6 +3,7 @@ package fx
 import (
 	"go.uber.org/fx"
 
+	"github.com/ducdt2000/azth/backend/internal/config"
 	"github.com/ducdt2000/azth/backend/internal/db"
 	authRepo "github.com/ducdt2000/azth/backend/internal/modules/auth/repository"
 	authSvc "github.com/ducdt2000/azth/backend/internal/modules/auth/service"
@@ -90,14 +91,29 @@ func NewTenantCommandHandler(
 func NewAuthService(
 	userRepo userRepo.UserRepository,
 	sessionRepo authRepo.SessionRepository,
+	roleService roleSvc.RoleService,
 	logger *logger.Logger,
+	cfg *config.Config,
 ) authSvc.AuthService {
-	// Create default configuration
-	config := authSvc.DefaultAuthConfig()
+	authConfig := &authSvc.AuthConfig{
+		JWTSecret:           cfg.JWT.Secret,
+		JWTIssuer:           cfg.JWT.Issuer,
+		JWTAudience:         cfg.JWT.Audience[0],
+		JWTAccessTokenTTL:   cfg.JWT.AccessTokenTTL,
+		JWTRefreshTokenTTL:  cfg.JWT.RefreshTokenTTL,
+		JWTAlgorithms:       cfg.JWT.Algorithms,
+		JWTValidateIssuer:   cfg.JWT.ValidateIssuer,
+		JWTValidateIAT:      cfg.JWT.ValidateIAT,
+		JWTBlacklistEnabled: cfg.JWT.Blacklist.Enabled,
+		Mode:                authSvc.AuthModeStateless,
+	}
 
-	// Override with custom values if needed
-	config.JWTSecret = "your-jwt-secret-key-change-in-production" // TODO: Get from env/config
-	config.Mode = authSvc.AuthModeStateful                        // Can be changed to AuthModeStateless for JWT
-
-	return authSvc.NewAuthService(userRepo, sessionRepo, logger, config)
+	return authSvc.NewAuthService(
+		userRepo,
+		sessionRepo,
+		roleService,
+		logger,
+		authConfig,
+		// TODO: Add JWT blacklist service implementation when available
+	)
 }

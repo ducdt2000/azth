@@ -7,55 +7,65 @@ import (
 
 	"github.com/ducdt2000/azth/backend/internal/domain"
 	"github.com/ducdt2000/azth/backend/internal/modules/auth/dto"
-	authRepo "github.com/ducdt2000/azth/backend/internal/modules/auth/repository"
-	permRepo "github.com/ducdt2000/azth/backend/internal/modules/permission/repository"
-	roleRepo "github.com/ducdt2000/azth/backend/internal/modules/role/repository"
+	roleSvc "github.com/ducdt2000/azth/backend/internal/modules/role/service"
 	userRepo "github.com/ducdt2000/azth/backend/internal/modules/user/repository"
+	"github.com/ducdt2000/azth/backend/pkg/logger"
 	"github.com/ducdt2000/azth/backend/pkg/utils"
 	"github.com/google/uuid"
 )
 
 // SessionStrategy implements session-based authentication
 type SessionStrategy struct {
-	sessionRepo authRepo.SessionRepository
 	userRepo    userRepo.UserRepository
-	roleRepo    roleRepo.RoleRepository
-	permRepo    permRepo.PermissionRepository
+	sessionRepo SessionRepository
+	roleService roleSvc.RoleService
+	logger      *logger.Logger
 	config      *SessionConfig
+}
+
+// SessionRepository defines the interface for session operations
+type SessionRepository interface {
+	Create(ctx context.Context, session *domain.Session) error
+	GetByToken(ctx context.Context, token string) (*domain.Session, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Session, error)
+	GetByUserID(ctx context.Context, userID uuid.UUID) ([]*domain.Session, error)
+	Update(ctx context.Context, session *domain.Session) error
+	RevokeByID(ctx context.Context, sessionID uuid.UUID, reason string) error
+	RevokeByUserID(ctx context.Context, userID uuid.UUID, reason string) error
+	DeleteExpired(ctx context.Context) error
+	UpdateLastActivity(ctx context.Context, sessionID uuid.UUID, lastActivity time.Time) error
 }
 
 // SessionConfig holds session strategy configuration
 type SessionConfig struct {
-	SessionTTL     time.Duration `json:"session_ttl" yaml:"session_ttl"`
-	RefreshTTL     time.Duration `json:"refresh_ttl" yaml:"refresh_ttl"`
-	MaxSessions    int           `json:"max_sessions" yaml:"max_sessions"`
-	CheckIPChange  bool          `json:"check_ip_change" yaml:"check_ip_change"`
-	CheckUserAgent bool          `json:"check_user_agent" yaml:"check_user_agent"`
+	SessionTTL      time.Duration
+	RefreshTokenTTL time.Duration
+	TokenLength     int
+	MaxSessions     int // Maximum number of concurrent sessions per user
 }
 
 // NewSessionStrategy creates a new session strategy
 func NewSessionStrategy(
-	sessionRepo authRepo.SessionRepository,
 	userRepo userRepo.UserRepository,
-	roleRepo roleRepo.RoleRepository,
-	permRepo permRepo.PermissionRepository,
+	sessionRepo SessionRepository,
+	roleService roleSvc.RoleService,
+	logger *logger.Logger,
 	config *SessionConfig,
 ) *SessionStrategy {
 	if config == nil {
 		config = &SessionConfig{
-			SessionTTL:     24 * time.Hour,
-			RefreshTTL:     7 * 24 * time.Hour,
-			MaxSessions:    5,
-			CheckIPChange:  true,
-			CheckUserAgent: false,
+			SessionTTL:      24 * time.Hour,
+			RefreshTokenTTL: 30 * 24 * time.Hour,
+			TokenLength:     32,
+			MaxSessions:     5, // Default max 5 sessions per user
 		}
 	}
 
 	return &SessionStrategy{
-		sessionRepo: sessionRepo,
 		userRepo:    userRepo,
-		roleRepo:    roleRepo,
-		permRepo:    permRepo,
+		sessionRepo: sessionRepo,
+		roleService: roleService,
+		logger:      logger,
 		config:      config,
 	}
 }
@@ -128,29 +138,20 @@ func (s *SessionStrategy) Authenticate(ctx context.Context, req *dto.LoginReques
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
-	// Get user roles - using GetUserRoles which returns UserRoles with Role information
-	userRoles, err := s.userRepo.GetUserRoles(ctx, user.ID)
+	// Get user roles
+	userRoles, err := s.roleService.GetUserRoles(ctx, user.ID, user.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user roles: %w", err)
 	}
-
-	// Extract role names from UserRole relationships
-	roleNames := make([]string, 0)
-	for _, userRole := range userRoles {
-		// Get the role details
-		role, err := s.roleRepo.GetByID(ctx, userRole.RoleID)
-		if err == nil && role != nil {
-			roleNames = append(roleNames, role.Name)
-		}
+	roleNames := make([]string, len(userRoles))
+	for i, ur := range userRoles {
+		roleNames[i] = ur.Role.Name
 	}
 
-	// Get user permissions through their roles
-	permissions := make([]*domain.Permission, 0)
-	for _, userRole := range userRoles {
-		rolePermissions, err := s.permRepo.GetPermissionsByIDs(ctx, []uuid.UUID{userRole.RoleID})
-		if err == nil {
-			permissions = append(permissions, rolePermissions...)
-		}
+	// Get user permissions
+	permissions, err := s.roleService.GetUserPermissions(ctx, user.ID, user.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user permissions: %w", err)
 	}
 
 	// Convert permissions to strings
@@ -219,27 +220,19 @@ func (s *SessionStrategy) ValidateToken(ctx context.Context, token string) (*Aut
 	}
 
 	// Get user roles
-	userRoles, err := s.userRepo.GetUserRoles(ctx, user.ID)
+	userRoles, err := s.roleService.GetUserRoles(ctx, user.ID, user.TenantID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user roles: %w", err)
 	}
-
-	// Extract role names
-	roleNames := make([]string, 0)
-	for _, userRole := range userRoles {
-		role, err := s.roleRepo.GetByID(ctx, userRole.RoleID)
-		if err == nil && role != nil {
-			roleNames = append(roleNames, role.Name)
-		}
+	roleNames := make([]string, len(userRoles))
+	for i, ur := range userRoles {
+		roleNames[i] = ur.Role.Name
 	}
 
-	// Get user permissions through their roles
-	permissions := make([]*domain.Permission, 0)
-	for _, userRole := range userRoles {
-		rolePermissions, err := s.permRepo.GetPermissionsByIDs(ctx, []uuid.UUID{userRole.RoleID})
-		if err == nil {
-			permissions = append(permissions, rolePermissions...)
-		}
+	// Get user permissions
+	permissions, err := s.roleService.GetUserPermissions(ctx, user.ID, user.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user permissions: %w", err)
 	}
 
 	// Convert permissions to strings

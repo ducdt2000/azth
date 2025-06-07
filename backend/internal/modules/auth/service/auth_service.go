@@ -6,6 +6,8 @@ import (
 
 	"github.com/ducdt2000/azth/backend/internal/domain"
 	"github.com/ducdt2000/azth/backend/internal/modules/auth/dto"
+	roleSvc "github.com/ducdt2000/azth/backend/internal/modules/role/service"
+	userRepo "github.com/ducdt2000/azth/backend/internal/modules/user/repository"
 	"github.com/google/uuid"
 )
 
@@ -45,6 +47,7 @@ type AuthService interface {
 	GenerateJWT(ctx context.Context, userID uuid.UUID, tenantID uuid.UUID, req *dto.JWTRequest) (*dto.JWTResponse, error)
 	ValidateJWT(ctx context.Context, token string) (*dto.JWTClaims, error)
 	RefreshJWT(ctx context.Context, refreshToken string) (*dto.JWTResponse, error)
+	RevokeJWT(ctx context.Context, token string) error
 
 	// User authentication helpers
 	ValidateCredentials(ctx context.Context, email, password string) (*domain.User, error)
@@ -63,18 +66,27 @@ type AuthService interface {
 	IsAccountLocked(ctx context.Context, userID uuid.UUID) (bool, error)
 	UnlockAccount(ctx context.Context, userID uuid.UUID) error
 
+	// Password reset
+	RequestPasswordReset(ctx context.Context, req *dto.RequestPasswordResetRequest) (*dto.RequestPasswordResetResponse, error)
+	ConfirmPasswordReset(ctx context.Context, req *dto.ConfirmPasswordResetRequest) (*dto.ConfirmPasswordResetResponse, error)
+	UpdatePassword(ctx context.Context, userID uuid.UUID, req *dto.UpdatePasswordRequest) (*dto.UpdatePasswordResponse, error)
+
 	// Configuration
 	GetAuthMode() AuthMode
 	IsJWTMode() bool
 	IsSessionMode() bool
 }
 
-// authService implements AuthService interface
-type authService struct {
-	userRepo    UserRepository
-	sessionRepo SessionRepository
-	logger      Logger
-	config      *AuthConfig
+// JWTBlacklistService interface for JWT token blacklisting
+type JWTBlacklistService interface {
+	// AddToBlacklist adds a JWT token to the blacklist
+	AddToBlacklist(ctx context.Context, jti string, expiresAt time.Time) error
+	// IsBlacklisted checks if a JWT token is blacklisted
+	IsBlacklisted(ctx context.Context, jti string) (bool, error)
+	// RemoveExpired removes expired tokens from the blacklist
+	RemoveExpired(ctx context.Context) error
+	// AddUserToBlacklist adds all tokens for a user to blacklist (for logout all)
+	AddUserToBlacklist(ctx context.Context, userID uuid.UUID, issuedBefore time.Time) error
 }
 
 // AuthConfig holds authentication configuration
@@ -94,6 +106,12 @@ type AuthConfig struct {
 	JWTRefreshTokenTTL time.Duration `json:"jwt_refresh_token_ttl" yaml:"jwt_refresh_token_ttl"`
 	JWTIssuer          string        `json:"jwt_issuer" yaml:"jwt_issuer"`
 	JWTAudience        string        `json:"jwt_audience" yaml:"jwt_audience"`
+	JWTAlgorithms      []string      `json:"jwt_algorithms" yaml:"jwt_algorithms"`
+	JWTValidateIssuer  bool          `json:"jwt_validate_issuer" yaml:"jwt_validate_issuer"`
+	JWTValidateIAT     bool          `json:"jwt_validate_iat" yaml:"jwt_validate_iat"`
+
+	// JWT blacklist configuration
+	JWTBlacklistEnabled bool `json:"jwt_blacklist_enabled" yaml:"jwt_blacklist_enabled"`
 
 	// Password hashing configuration
 	PasswordHashAlgorithm PasswordHashAlgorithm `json:"password_hash_algorithm" yaml:"password_hash_algorithm"`
@@ -117,27 +135,21 @@ func DefaultAuthConfig() *AuthConfig {
 		JWTRefreshTokenTTL:    7 * 24 * time.Hour, // 7 days
 		JWTIssuer:             "azth-auth-service",
 		JWTAudience:           "azth-api",
+		JWTAlgorithms:         []string{"HS256"},
+		JWTValidateIssuer:     true,
+		JWTValidateIAT:        true,
+		JWTBlacklistEnabled:   true, // Enable JWT blacklist by default
 		PasswordHashAlgorithm: PasswordHashArgon2ID,
 		BCryptCost:            12,
-		Argon2IDMemory:        64 * 1024, // 64MB
-		Argon2IDIterations:    3,
-		Argon2IDParallelism:   2,
+		Argon2IDMemory:        7168, // 7 MiB (proper default)
+		Argon2IDIterations:    5,    // 5 iterations (proper default)
+		Argon2IDParallelism:   1,    // 1 degree of parallelism
 		Argon2IDSaltLength:    16,
 		Argon2IDKeyLength:     32,
 	}
 }
 
 // Dependencies interfaces
-type UserRepository interface {
-	GetByEmail(ctx context.Context, email string) (*domain.User, error)
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
-	UpdateLastLogin(ctx context.Context, userID uuid.UUID, loginTime time.Time) error
-	UpdateLoginAttempts(ctx context.Context, userID uuid.UUID, attempts int) error
-	UpdateLockedUntil(ctx context.Context, userID uuid.UUID, lockedUntil *time.Time) error
-	UpdateMFASecret(ctx context.Context, userID uuid.UUID, secret string) error
-	UpdateBackupCodes(ctx context.Context, userID uuid.UUID, codes []string) error
-}
-
 type SessionRepository interface {
 	Create(ctx context.Context, session *domain.Session) error
 	GetByToken(ctx context.Context, token string) (*domain.Session, error)
@@ -159,34 +171,28 @@ type Logger interface {
 
 // NewAuthService creates a new authentication service
 func NewAuthService(
-	userRepo UserRepository,
+	userRepo userRepo.UserRepository,
 	sessionRepo SessionRepository,
+	roleService roleSvc.RoleService,
 	logger Logger,
 	config *AuthConfig,
+	blacklistService ...JWTBlacklistService,
 ) AuthService {
 	if config == nil {
 		config = DefaultAuthConfig()
 	}
 
-	return &authService{
-		userRepo:    userRepo,
-		sessionRepo: sessionRepo,
-		logger:      logger,
-		config:      config,
+	var blacklist JWTBlacklistService
+	if len(blacklistService) > 0 {
+		blacklist = blacklistService[0]
 	}
-}
 
-// GetAuthMode returns the current authentication mode
-func (s *authService) GetAuthMode() AuthMode {
-	return s.config.Mode
-}
-
-// IsJWTMode returns true if the service is configured for JWT mode
-func (s *authService) IsJWTMode() bool {
-	return s.config.Mode == AuthModeStateless
-}
-
-// IsSessionMode returns true if the service is configured for session mode
-func (s *authService) IsSessionMode() bool {
-	return s.config.Mode == AuthModeStateful
+	return &authServiceImpl{
+		userRepo:         userRepo,
+		sessionRepo:      sessionRepo,
+		roleService:      roleService,
+		logger:           logger,
+		config:           config,
+		blacklistService: blacklist,
+	}
 }

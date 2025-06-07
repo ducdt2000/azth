@@ -2,7 +2,9 @@ package repository
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -14,6 +16,8 @@ import (
 	"github.com/ducdt2000/azth/backend/internal/domain"
 	"github.com/ducdt2000/azth/backend/internal/modules/user/dto"
 	"github.com/ducdt2000/azth/backend/pkg/logger"
+	"golang.org/x/crypto/argon2"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // postgresUserRepository implements UserRepository using PostgreSQL
@@ -684,4 +688,98 @@ func (r *postgresUserRepository) LockUser(ctx context.Context, userID uuid.UUID,
 	}
 
 	return nil
+}
+
+// VerifyPassword verifies a password against its hash (supports both Argon2ID and bcrypt)
+func (r *postgresUserRepository) VerifyPassword(password, hash string) bool {
+	if strings.HasPrefix(hash, "$argon2id$") {
+		return r.verifyArgon2IDPassword(password, hash)
+	} else if strings.HasPrefix(hash, "$2a$") || strings.HasPrefix(hash, "$2b$") || strings.HasPrefix(hash, "$2y$") {
+		return r.verifyBcryptPassword(password, hash)
+	}
+
+	// Unknown hash format
+	r.logger.Warn("Unknown password hash format", "hash_prefix", hash[:min(10, len(hash))])
+	return false
+}
+
+// verifyArgon2IDPassword verifies Argon2ID password
+func (r *postgresUserRepository) verifyArgon2IDPassword(password, hash string) bool {
+	// Parse Argon2ID hash: $argon2id$v=19$m=memory,t=iterations,p=parallelism$salt$hash
+	parts := strings.Split(hash, "$")
+	if len(parts) != 6 {
+		r.logger.Warn("Invalid Argon2ID hash format")
+		return false
+	}
+
+	// Parse parameters
+	var memory, iterations uint32
+	var parallelism uint8
+	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &iterations, &parallelism); err != nil {
+		r.logger.Warn("Failed to parse Argon2ID parameters", "error", err)
+		return false
+	}
+
+	// Decode salt and hash
+	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
+	if err != nil {
+		r.logger.Warn("Failed to decode Argon2ID salt", "error", err)
+		return false
+	}
+
+	expectedHash, err := base64.RawStdEncoding.DecodeString(parts[5])
+	if err != nil {
+		r.logger.Warn("Failed to decode Argon2ID hash", "error", err)
+		return false
+	}
+
+	// Hash the provided password with the same parameters
+	computedHash := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, uint32(len(expectedHash)))
+
+	// Compare hashes using constant-time comparison
+	return subtle.ConstantTimeCompare(expectedHash, computedHash) == 1
+}
+
+// verifyBcryptPassword verifies bcrypt password
+func (r *postgresUserRepository) verifyBcryptPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
+}
+
+// UpdatePassword updates a user's password hash
+func (r *postgresUserRepository) UpdatePassword(ctx context.Context, userID uuid.UUID, hashedPassword string) error {
+	query := `
+		UPDATE users SET 
+			password_hash = $1,
+			password_changed_at = NOW(),
+			updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`
+
+	result, err := r.db.ExecContext(ctx, query, hashedPassword, userID)
+	if err != nil {
+		r.logger.Error("Failed to update user password", "error", err, "user_id", userID)
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		r.logger.Error("Failed to check rows affected", "error", err)
+		return fmt.Errorf("failed to check update result: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("user not found or already deleted")
+	}
+
+	r.logger.Info("User password updated successfully", "user_id", userID)
+	return nil
+}
+
+// Helper function for min (not available in older Go versions)
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

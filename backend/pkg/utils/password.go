@@ -31,9 +31,9 @@ type Argon2IDConfig struct {
 // DefaultArgon2IDConfig returns default Argon2ID configuration
 func DefaultArgon2IDConfig() *Argon2IDConfig {
 	return &Argon2IDConfig{
-		Memory:      64 * 1024, // 64MB
-		Iterations:  3,
-		Parallelism: 2,
+		Memory:      7168, // 7 MiB (proper default)
+		Iterations:  5,    // 5 iterations (proper default)
+		Parallelism: 1,    // 1 degree of parallelism
 		SaltLength:  16,
 		KeyLength:   32,
 	}

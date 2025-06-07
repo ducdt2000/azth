@@ -36,28 +36,6 @@ func NewAuthHandler(
 	}
 }
 
-// RegisterRoutes registers authentication routes
-func (h *AuthHandler) RegisterRoutes(g *echo.Group) {
-	auth := g.Group("/auth")
-
-	// Public routes (no authentication required)
-	auth.POST("/login", h.Login)
-	auth.POST("/refresh", h.RefreshToken)
-	auth.POST("/logout", h.Logout)
-
-	// Protected routes (authentication required)
-	// Note: These would typically use authentication middleware
-	auth.GET("/sessions", h.GetSessions)
-	auth.DELETE("/sessions/:id", h.RevokeSession)
-	auth.DELETE("/sessions", h.LogoutAll)
-
-	// MFA routes
-	auth.POST("/mfa/enable", h.EnableMFA)
-	auth.DELETE("/mfa/disable", h.DisableMFA)
-	auth.POST("/mfa/validate", h.ValidateMFA)
-	auth.POST("/mfa/backup-codes", h.GenerateBackupCodes)
-}
-
 // Login handles user login
 // @Summary Login user
 // @Description Authenticate user with email and password

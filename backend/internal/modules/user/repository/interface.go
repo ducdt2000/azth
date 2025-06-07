@@ -10,82 +10,49 @@ import (
 )
 
 // UserRepository defines the interface for user data access
+// This is the shared repository interface used by all modules
 type UserRepository interface {
-	// Create creates a new user
+	// Basic CRUD operations
 	Create(ctx context.Context, user *domain.User) error
-
-	// GetByID retrieves a user by ID
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
-
-	// GetByEmail retrieves a user by email
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
-
-	// GetByUsername retrieves a user by username
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
-
-	// Update updates an existing user
 	Update(ctx context.Context, user *domain.User) error
-
-	// Delete soft deletes a user
 	Delete(ctx context.Context, id uuid.UUID) error
 
-	// List retrieves users with pagination and filtering
+	// Query operations
 	List(ctx context.Context, req *dto.UserListRequest) ([]*domain.User, int, error)
-
-	// GetByTenantID retrieves users by tenant ID with pagination
 	GetByTenantID(ctx context.Context, tenantID uuid.UUID, req *dto.UserListRequest) ([]*domain.User, int, error)
-
-	// GetUserStats retrieves user statistics
 	GetUserStats(ctx context.Context, req *dto.UserStatsRequest) (*dto.UserStatsResponse, error)
-
-	// BulkUpdate performs bulk updates on users
 	BulkUpdate(ctx context.Context, userIDs []uuid.UUID, action string) (int, []error)
 
-	// EmailExists checks if an email already exists
+	// Validation operations
 	EmailExists(ctx context.Context, email string, excludeUserID *uuid.UUID) (bool, error)
-
-	// UsernameExists checks if a username already exists
 	UsernameExists(ctx context.Context, username string, excludeUserID *uuid.UUID) (bool, error)
 
-	// GetUserRoles retrieves roles assigned to a user
+	// Role management
 	GetUserRoles(ctx context.Context, userID uuid.UUID) ([]*domain.UserRole, error)
-
-	// AssignRole assigns a role to a user
 	AssignRole(ctx context.Context, userRole *domain.UserRole) error
-
-	// RevokeRole revokes a role from a user
 	RevokeRole(ctx context.Context, userID, roleID uuid.UUID) error
-
-	// HasRole checks if a user has a specific role
 	HasRole(ctx context.Context, userID, roleID uuid.UUID) (bool, error)
 
-	// GetUserSessions retrieves active sessions for a user
+	// Session management
 	GetUserSessions(ctx context.Context, userID uuid.UUID) ([]*domain.Session, error)
-
-	// RevokeAllSessions revokes all sessions for a user
 	RevokeAllSessions(ctx context.Context, userID uuid.UUID) error
 
-	// UpdateLastLogin updates the last login timestamp
+	// Authentication and security operations
 	UpdateLastLogin(ctx context.Context, userID uuid.UUID, loginTime time.Time) error
-
-	// UpdateLoginAttempts updates login attempts counter
 	UpdateLoginAttempts(ctx context.Context, userID uuid.UUID, attempts int) error
-
-	// UpdateLockedUntil updates the locked until timestamp
 	UpdateLockedUntil(ctx context.Context, userID uuid.UUID, lockedUntil *time.Time) error
+	IncrementLoginAttempts(ctx context.Context, userID uuid.UUID) error
+	ResetLoginAttempts(ctx context.Context, userID uuid.UUID) error
+	LockUser(ctx context.Context, userID uuid.UUID, lockedUntil *time.Time) error
 
-	// UpdateMFASecret updates the MFA secret for a user
+	// MFA operations
 	UpdateMFASecret(ctx context.Context, userID uuid.UUID, secret string) error
-
-	// UpdateBackupCodes updates the backup codes for a user
 	UpdateBackupCodes(ctx context.Context, userID uuid.UUID, codes []string) error
 
-	// IncrementLoginAttempts increments login attempts counter
-	IncrementLoginAttempts(ctx context.Context, userID uuid.UUID) error
-
-	// ResetLoginAttempts resets login attempts counter
-	ResetLoginAttempts(ctx context.Context, userID uuid.UUID) error
-
-	// LockUser locks a user account until specified time
-	LockUser(ctx context.Context, userID uuid.UUID, lockedUntil *time.Time) error
+	// Password operations (for auth modules)
+	VerifyPassword(password, hash string) bool
+	UpdatePassword(ctx context.Context, userID uuid.UUID, hashedPassword string) error
 }

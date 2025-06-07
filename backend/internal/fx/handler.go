@@ -25,6 +25,7 @@ var HandlerModule = fx.Module("handlers",
 	fx.Provide(NewRoleHandler),
 	fx.Provide(NewPermissionHandler),
 	fx.Provide(NewAuthHandler),
+	fx.Provide(NewPasswordResetHandler),
 	// TODO: Add more handler providers here
 	// fx.Provide(NewOIDCHandler),
 )
@@ -52,4 +53,13 @@ func NewPermissionHandler(permissionService permissionSvc.PermissionService, log
 // NewAuthHandler creates a new authentication handler
 func NewAuthHandler(authService authSvc.AuthService, validator *validator.CustomValidator, responseBuilder *response.ResponseBuilder) *authHandlers.AuthHandler {
 	return authHandlers.NewAuthHandler(authService, validator, responseBuilder)
+}
+
+// NewPasswordResetHandler creates a new password reset handler
+func NewPasswordResetHandler(
+	authService authSvc.AuthService,
+	response *response.ResponseBuilder,
+	validator *validator.CustomValidator,
+) *authHandlers.PasswordResetHandler {
+	return authHandlers.NewPasswordResetHandler(authService, response, validator)
 }

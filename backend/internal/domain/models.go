@@ -393,3 +393,192 @@ const (
 	TokenEndpointAuthClientSecretPost  = "client_secret_post"
 	TokenEndpointAuthNone              = "none"
 )
+
+// PasswordResetToken represents a password reset token
+type PasswordResetToken struct {
+	ID        uuid.UUID  `json:"id" db:"id"`
+	UserID    uuid.UUID  `json:"user_id" db:"user_id"`
+	TenantID  uuid.UUID  `json:"tenant_id" db:"tenant_id"`
+	Token     string     `json:"-" db:"token"`
+	TokenHash string     `json:"-" db:"token_hash"`
+	ExpiresAt time.Time  `json:"expires_at" db:"expires_at"`
+	Used      bool       `json:"used" db:"used"`
+	UsedAt    *time.Time `json:"used_at" db:"used_at"`
+	IPAddress string     `json:"ip_address" db:"ip_address"`
+	UserAgent string     `json:"user_agent" db:"user_agent"`
+	CreatedAt time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+// OTPCode represents an OTP verification code
+type OTPCode struct {
+	ID          uuid.UUID  `json:"id" db:"id"`
+	UserID      uuid.UUID  `json:"user_id" db:"user_id"`
+	TenantID    uuid.UUID  `json:"tenant_id" db:"tenant_id"`
+	Code        string     `json:"-" db:"code"`
+	CodeHash    string     `json:"-" db:"code_hash"`
+	Type        OTPType    `json:"type" db:"type"`
+	Purpose     OTPPurpose `json:"purpose" db:"purpose"`
+	Target      string     `json:"target" db:"target"` // email or phone number
+	ExpiresAt   time.Time  `json:"expires_at" db:"expires_at"`
+	Used        bool       `json:"used" db:"used"`
+	UsedAt      *time.Time `json:"used_at" db:"used_at"`
+	Attempts    int        `json:"attempts" db:"attempts"`
+	MaxAttempts int        `json:"max_attempts" db:"max_attempts"`
+	IPAddress   string     `json:"ip_address" db:"ip_address"`
+	UserAgent   string     `json:"user_agent" db:"user_agent"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+// OTPType represents the type of OTP delivery method
+type OTPType string
+
+const (
+	OTPTypeEmail OTPType = "email"
+	OTPTypeSMS   OTPType = "sms"
+	OTPTypeTOTP  OTPType = "totp"
+)
+
+// OTPPurpose represents the purpose of the OTP
+type OTPPurpose string
+
+const (
+	OTPPurposeEmailVerification OTPPurpose = "email_verification"
+	OTPPurposePhoneVerification OTPPurpose = "phone_verification"
+	OTPPurposePasswordReset     OTPPurpose = "password_reset"
+	OTPPurposeMFAVerification   OTPPurpose = "mfa_verification"
+	OTPPurposeLogin             OTPPurpose = "login"
+	OTPPurposeAccountRecovery   OTPPurpose = "account_recovery"
+)
+
+// OTPConfig represents OTP configuration settings
+type OTPConfig struct {
+	ID               uuid.UUID  `json:"id" db:"id"`
+	TenantID         *uuid.UUID `json:"tenant_id" db:"tenant_id"` // NULL for global config
+	Purpose          OTPPurpose `json:"purpose" db:"purpose"`
+	Type             OTPType    `json:"type" db:"type"`
+	Enabled          bool       `json:"enabled" db:"enabled"`
+	CodeLength       int        `json:"code_length" db:"code_length"`
+	ExpiryMinutes    int        `json:"expiry_minutes" db:"expiry_minutes"`
+	MaxAttempts      int        `json:"max_attempts" db:"max_attempts"`
+	CooldownMinutes  int        `json:"cooldown_minutes" db:"cooldown_minutes"`
+	RateLimitPerHour int        `json:"rate_limit_per_hour" db:"rate_limit_per_hour"`
+	RateLimitPerDay  int        `json:"rate_limit_per_day" db:"rate_limit_per_day"`
+	IsNumericOnly    bool       `json:"is_numeric_only" db:"is_numeric_only"`
+	TemplateID       *uuid.UUID `json:"template_id" db:"template_id"`
+	Settings         JSONMap    `json:"settings" db:"settings"`
+	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at" db:"updated_at"`
+	CreatedBy        uuid.UUID  `json:"created_by" db:"created_by"`
+	UpdatedBy        *uuid.UUID `json:"updated_by" db:"updated_by"`
+}
+
+// NotificationTemplate represents a template for email/SMS notifications
+type NotificationTemplate struct {
+	ID        uuid.UUID    `json:"id" db:"id"`
+	TenantID  *uuid.UUID   `json:"tenant_id" db:"tenant_id"` // NULL for global templates
+	Name      string       `json:"name" db:"name"`
+	Type      TemplateType `json:"type" db:"type"`
+	Purpose   OTPPurpose   `json:"purpose" db:"purpose"`
+	Language  string       `json:"language" db:"language"`
+	Subject   *string      `json:"subject" db:"subject"` // For email templates
+	Body      string       `json:"body" db:"body"`
+	BodyHTML  *string      `json:"body_html" db:"body_html"` // For email templates
+	Variables []string     `json:"variables" db:"variables"`
+	IsDefault bool         `json:"is_default" db:"is_default"`
+	IsActive  bool         `json:"is_active" db:"is_active"`
+	Metadata  JSONMap      `json:"metadata" db:"metadata"`
+	CreatedAt time.Time    `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at" db:"updated_at"`
+	CreatedBy uuid.UUID    `json:"created_by" db:"created_by"`
+	UpdatedBy *uuid.UUID   `json:"updated_by" db:"updated_by"`
+}
+
+// TemplateType represents the type of notification template
+type TemplateType string
+
+const (
+	TemplateTypeEmail TemplateType = "email"
+	TemplateTypeSMS   TemplateType = "sms"
+)
+
+// MFAConfig represents MFA configuration for tenants
+type MFAConfig struct {
+	ID                   uuid.UUID  `json:"id" db:"id"`
+	TenantID             *uuid.UUID `json:"tenant_id" db:"tenant_id"` // NULL for global config
+	SMSEnabled           bool       `json:"sms_enabled" db:"sms_enabled"`
+	EmailEnabled         bool       `json:"email_enabled" db:"email_enabled"`
+	TOTPEnabled          bool       `json:"totp_enabled" db:"totp_enabled"`
+	TOTPIssuer           string     `json:"totp_issuer" db:"totp_issuer"`
+	RequiredForLogin     bool       `json:"required_for_login" db:"required_for_login"`
+	RequiredForSensitive bool       `json:"required_for_sensitive" db:"required_for_sensitive"`
+	Rule                 MFARule    `json:"rule" db:"rule"`
+	BackupCodesEnabled   bool       `json:"backup_codes_enabled" db:"backup_codes_enabled"`
+	BackupCodesCount     int        `json:"backup_codes_count" db:"backup_codes_count"`
+	TrustedDevicesDays   int        `json:"trusted_devices_days" db:"trusted_devices_days"`
+	Settings             JSONMap    `json:"settings" db:"settings"`
+	CreatedAt            time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at" db:"updated_at"`
+	CreatedBy            uuid.UUID  `json:"created_by" db:"created_by"`
+	UpdatedBy            *uuid.UUID `json:"updated_by" db:"updated_by"`
+}
+
+// MFARule represents the MFA enforcement rule
+type MFARule string
+
+const (
+	MFARuleRequired MFARule = "required" // MFA is mandatory for all users
+	MFARuleOptional MFARule = "optional" // MFA is available but not mandatory
+	MFARulePrompt   MFARule = "prompt"   // Users are prompted to enable MFA but can skip
+)
+
+// NotificationLog represents a log of sent notifications
+type NotificationLog struct {
+	ID           uuid.UUID          `json:"id" db:"id"`
+	TenantID     uuid.UUID          `json:"tenant_id" db:"tenant_id"`
+	UserID       *uuid.UUID         `json:"user_id" db:"user_id"`
+	Type         TemplateType       `json:"type" db:"type"`
+	Purpose      OTPPurpose         `json:"purpose" db:"purpose"`
+	Recipient    string             `json:"recipient" db:"recipient"`
+	TemplateID   *uuid.UUID         `json:"template_id" db:"template_id"`
+	Subject      *string            `json:"subject" db:"subject"`
+	Body         string             `json:"body" db:"body"`
+	Status       NotificationStatus `json:"status" db:"status"`
+	ErrorMessage *string            `json:"error_message" db:"error_message"`
+	ExternalID   *string            `json:"external_id" db:"external_id"` // ID from email/SMS provider
+	SentAt       *time.Time         `json:"sent_at" db:"sent_at"`
+	DeliveredAt  *time.Time         `json:"delivered_at" db:"delivered_at"`
+	FailedAt     *time.Time         `json:"failed_at" db:"failed_at"`
+	Metadata     JSONMap            `json:"metadata" db:"metadata"`
+	CreatedAt    time.Time          `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at" db:"updated_at"`
+}
+
+// NotificationStatus represents the status of a notification
+type NotificationStatus string
+
+const (
+	NotificationStatusPending   NotificationStatus = "pending"
+	NotificationStatusSent      NotificationStatus = "sent"
+	NotificationStatusDelivered NotificationStatus = "delivered"
+	NotificationStatusFailed    NotificationStatus = "failed"
+	NotificationStatusBounced   NotificationStatus = "bounced"
+)
+
+// TrustedDevice represents a trusted device for MFA bypass
+type TrustedDevice struct {
+	ID         uuid.UUID `json:"id" db:"id"`
+	UserID     uuid.UUID `json:"user_id" db:"user_id"`
+	TenantID   uuid.UUID `json:"tenant_id" db:"tenant_id"`
+	DeviceID   string    `json:"device_id" db:"device_id"` // Fingerprint of device
+	Name       string    `json:"name" db:"name"`
+	UserAgent  string    `json:"user_agent" db:"user_agent"`
+	IPAddress  string    `json:"ip_address" db:"ip_address"`
+	LastUsedAt time.Time `json:"last_used_at" db:"last_used_at"`
+	ExpiresAt  time.Time `json:"expires_at" db:"expires_at"`
+	IsActive   bool      `json:"is_active" db:"is_active"`
+	TrustToken string    `json:"-" db:"trust_token"`
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
+}

@@ -16,12 +16,13 @@ import (
 
 // Router handles HTTP routing with dependency-injected handlers
 type Router struct {
-	userHandler       *userHandlers.UserHandlerV2
-	tenantHandler     *tenantHandlers.TenantHandler
-	roleHandler       *roleHandlers.RoleHandler
-	permissionHandler *permissionHandlers.PermissionHandler
-	authHandler       *authHandlers.AuthHandler
-	logger            *logger.Logger
+	userHandler          *userHandlers.UserHandlerV2
+	tenantHandler        *tenantHandlers.TenantHandler
+	roleHandler          *roleHandlers.RoleHandler
+	permissionHandler    *permissionHandlers.PermissionHandler
+	authHandler          *authHandlers.AuthHandler
+	passwordResetHandler *authHandlers.PasswordResetHandler
+	logger               *logger.Logger
 
 	// Middleware
 	enhancedAuth    *pkgMiddleware.EnhancedAuthMiddleware
@@ -36,21 +37,23 @@ func NewRouter(
 	roleHandler *roleHandlers.RoleHandler,
 	permissionHandler *permissionHandlers.PermissionHandler,
 	authHandler *authHandlers.AuthHandler,
+	passwordResetHandler *authHandlers.PasswordResetHandler,
 	logger *logger.Logger,
 	enhancedAuth *pkgMiddleware.EnhancedAuthMiddleware,
 	rbacMiddleware *pkgMiddleware.RBACMiddleware,
 	authzMiddleware *pkgMiddleware.AuthorizationMiddleware,
 ) *Router {
 	return &Router{
-		userHandler:       userHandler,
-		tenantHandler:     tenantHandler,
-		roleHandler:       roleHandler,
-		permissionHandler: permissionHandler,
-		authHandler:       authHandler,
-		logger:            logger,
-		enhancedAuth:      enhancedAuth,
-		rbacMiddleware:    rbacMiddleware,
-		authzMiddleware:   authzMiddleware,
+		userHandler:          userHandler,
+		tenantHandler:        tenantHandler,
+		roleHandler:          roleHandler,
+		permissionHandler:    permissionHandler,
+		authHandler:          authHandler,
+		passwordResetHandler: passwordResetHandler,
+		logger:               logger,
+		enhancedAuth:         enhancedAuth,
+		rbacMiddleware:       rbacMiddleware,
+		authzMiddleware:      authzMiddleware,
 	}
 }
 
@@ -90,11 +93,8 @@ func (r *Router) SetupRoutes(e *echo.Echo) {
 	// Auth routes (public)
 	auth := v1.Group("/auth")
 	auth.POST("/login", r.authHandler.Login)
-	auth.POST("/register", r.placeholderHandler("register")) // TODO: Implement user registration
 	auth.POST("/refresh", r.authHandler.RefreshToken)
-	auth.GET("/me", r.placeholderHandler("get-profile"), r.enhancedAuth.RequireAuth()) // TODO: Implement get profile
 	auth.POST("/logout", r.authHandler.Logout, r.enhancedAuth.RequireAuth())
-	auth.PUT("/password", r.placeholderHandler("change-password"), r.enhancedAuth.RequireAuth()) // TODO: Implement change password
 
 	// Session management
 	auth.GET("/sessions", r.authHandler.GetSessions, r.enhancedAuth.RequireAuth())
@@ -106,6 +106,11 @@ func (r *Router) SetupRoutes(e *echo.Echo) {
 	auth.DELETE("/mfa/disable", r.authHandler.DisableMFA, r.enhancedAuth.RequireAuth())
 	auth.POST("/mfa/validate", r.authHandler.ValidateMFA, r.enhancedAuth.RequireAuth())
 	auth.POST("/mfa/backup-codes", r.authHandler.GenerateBackupCodes, r.enhancedAuth.RequireAuth())
+
+	// Password reset routes
+	auth.POST("/password/reset/request", r.passwordResetHandler.RequestPasswordReset)
+	auth.POST("/password/reset/confirm", r.passwordResetHandler.ConfirmPasswordReset)
+	auth.PUT("/password/update", r.passwordResetHandler.UpdatePassword, r.enhancedAuth.RequireAuth())
 
 	// User routes with role-based access control
 	users := v1.Group("/users")

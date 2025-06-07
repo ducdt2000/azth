@@ -129,15 +129,33 @@ type LocalKVConfig struct {
 
 // JWTConfig holds JWT configuration
 type JWTConfig struct {
-	Secret            string        `mapstructure:"secret"`
-	PrivateKeyPath    string        `mapstructure:"private_key_path"`
-	PublicKeyPath     string        `mapstructure:"public_key_path"`
-	AccessTokenTTL    time.Duration `mapstructure:"access_token_ttl"`
-	RefreshTokenTTL   time.Duration `mapstructure:"refresh_token_ttl"`
-	Algorithm         string        `mapstructure:"algorithm"`
-	Issuer            string        `mapstructure:"issuer"`
-	Audience          []string      `mapstructure:"audience"`
-	RefreshTokenStore string        `mapstructure:"refresh_token_store"`
+	Secret            string             `mapstructure:"secret"`
+	PrivateKeyPath    string             `mapstructure:"private_key_path"`
+	PublicKeyPath     string             `mapstructure:"public_key_path"`
+	AccessTokenTTL    time.Duration      `mapstructure:"access_token_ttl"`
+	RefreshTokenTTL   time.Duration      `mapstructure:"refresh_token_ttl"`
+	Algorithm         string             `mapstructure:"algorithm"`
+	Algorithms        []string           `mapstructure:"algorithms"`
+	Issuer            string             `mapstructure:"issuer"`
+	Audience          []string           `mapstructure:"audience"`
+	RefreshTokenStore string             `mapstructure:"refresh_token_store"`
+	ValidateIssuer    bool               `mapstructure:"issuer_validator"`
+	ValidateIAT       bool               `mapstructure:"iat_claims_enabled"`
+	Blacklist         JWTBlacklistConfig `mapstructure:"blacklist"`
+	Whitelist         JWTWhitelistConfig `mapstructure:"whitelist"`
+}
+
+// JWTBlacklistConfig holds JWT blacklist configuration
+type JWTBlacklistConfig struct {
+	Enabled         bool          `mapstructure:"enabled"`
+	Store           string        `mapstructure:"store"` // "redis" or "memory"
+	CleanupInterval time.Duration `mapstructure:"cleanup_interval"`
+}
+
+// JWTWhitelistConfig holds JWT whitelist configuration
+type JWTWhitelistConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Store   string `mapstructure:"store"` // "redis" or "memory"
 }
 
 // OIDCConfig holds OIDC server configuration
@@ -318,11 +336,23 @@ func setDefaults(v *viper.Viper) {
 
 	// JWT defaults
 	v.SetDefault("jwt.algorithm", "RS256")
+	v.SetDefault("jwt.algorithms", []string{"HS256", "HS384", "HS512", "RS256"})
 	v.SetDefault("jwt.access_token_ttl", "15m")
 	v.SetDefault("jwt.refresh_token_ttl", "168h") // 7 days
 	v.SetDefault("jwt.issuer", "azth")
 	v.SetDefault("jwt.audience", []string{"azth"})
 	v.SetDefault("jwt.refresh_token_store", "redis")
+	v.SetDefault("jwt.issuer_validator", true)
+	v.SetDefault("jwt.iat_claims_enabled", true)
+
+	// JWT blacklist defaults
+	v.SetDefault("jwt.blacklist.enabled", true)
+	v.SetDefault("jwt.blacklist.store", "redis")
+	v.SetDefault("jwt.blacklist.cleanup_interval", "1h")
+
+	// JWT whitelist defaults
+	v.SetDefault("jwt.whitelist.enabled", false)
+	v.SetDefault("jwt.whitelist.store", "redis")
 
 	// OIDC defaults
 	v.SetDefault("oidc.issuer", "http://localhost:8080")

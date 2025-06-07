@@ -6,40 +6,68 @@ import (
 	authRepo "github.com/ducdt2000/azth/backend/internal/modules/auth/repository"
 	permRepo "github.com/ducdt2000/azth/backend/internal/modules/permission/repository"
 	roleRepo "github.com/ducdt2000/azth/backend/internal/modules/role/repository"
+	roleSvc "github.com/ducdt2000/azth/backend/internal/modules/role/service"
 	userRepo "github.com/ducdt2000/azth/backend/internal/modules/user/repository"
+	"github.com/ducdt2000/azth/backend/pkg/logger"
 )
+
+// StrategyFactory creates authentication strategies
+type StrategyFactory struct {
+	userRepo    userRepo.UserRepository
+	sessionRepo authRepo.SessionRepository
+	roleRepo    roleRepo.RoleRepository
+	permRepo    permRepo.PermissionRepository
+	logger      *logger.Logger
+}
+
+// NewStrategyFactory creates a new strategy factory
+func NewStrategyFactory(
+	userRepo userRepo.UserRepository,
+	sessionRepo authRepo.SessionRepository,
+	roleRepo roleRepo.RoleRepository,
+	permRepo permRepo.PermissionRepository,
+	logger *logger.Logger,
+) *StrategyFactory {
+	return &StrategyFactory{
+		userRepo:    userRepo,
+		sessionRepo: sessionRepo,
+		roleRepo:    roleRepo,
+		permRepo:    permRepo,
+		logger:      logger,
+	}
+}
 
 // StrategyBuilder helps build authentication strategies with dependencies
 type StrategyBuilder struct {
 	sessionRepo authRepo.SessionRepository
 	userRepo    userRepo.UserRepository
-	roleRepo    roleRepo.RoleRepository
-	permRepo    permRepo.PermissionRepository
+	roleService roleSvc.RoleService
+	logger      *logger.Logger
 }
 
 // NewStrategyBuilder creates a new strategy builder
 func NewStrategyBuilder(
 	sessionRepo authRepo.SessionRepository,
 	userRepo userRepo.UserRepository,
-	roleRepo roleRepo.RoleRepository,
-	permRepo permRepo.PermissionRepository,
+	roleService roleSvc.RoleService,
+	logger *logger.Logger,
 ) *StrategyBuilder {
 	return &StrategyBuilder{
 		sessionRepo: sessionRepo,
 		userRepo:    userRepo,
-		roleRepo:    roleRepo,
-		permRepo:    permRepo,
+		roleService: roleService,
+		logger:      logger,
 	}
 }
 
 // BuildSessionStrategy builds a session-based authentication strategy
 func (sb *StrategyBuilder) BuildSessionStrategy(config *SessionConfig) AuthStrategy {
-	return NewSessionStrategy(sb.sessionRepo, sb.userRepo, sb.roleRepo, sb.permRepo, config)
+	return NewSessionStrategy(sb.userRepo, sb.sessionRepo, sb.roleService, sb.logger, config)
 }
 
 // BuildJWTStrategy builds a JWT-based authentication strategy
 func (sb *StrategyBuilder) BuildJWTStrategy(config *JWTConfig) AuthStrategy {
-	return NewJWTStrategy(sb.userRepo, sb.roleRepo, sb.permRepo, config)
+	return NewJWTStrategy(sb.userRepo, sb.roleService, sb.logger, config)
 }
 
 // CreateAuthStrategyWithDependencies creates an authentication strategy with injected dependencies
