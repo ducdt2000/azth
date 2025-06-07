@@ -206,7 +206,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 // @Tags auth
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} response.Response{data=[]dto.SessionResponse} "Sessions retrieved successfully"
+// @Success 200 {object} response.Response{data=[]dto.SessionInfo} "Sessions retrieved successfully"
 // @Failure 401 {object} response.Response{error=response.ErrorInfo} "Unauthorized"
 // @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/sessions [get]
@@ -333,7 +333,7 @@ func (h *AuthHandler) LogoutAll(c echo.Context) error {
 // @Tags auth
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} response.Response{data=dto.MFAEnableResponse} "MFA enabled successfully"
+// @Success 200 {object} response.Response{data=dto.MFASetupResponse} "MFA enabled successfully"
 // @Failure 401 {object} response.Response{error=response.ErrorInfo} "Unauthorized"
 // @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/mfa/enable [post]

@@ -1,4 +1,4 @@
-.PHONY: help setup clean build test dev docker-up docker-down backend frontend migrations
+.PHONY: help setup clean build test dev docker-up docker-down backend frontend migrations docs docs-serve
 
 # Default target
 help: ## Show this help message
@@ -134,7 +134,7 @@ benchmark: ## Run benchmarks
 # Documentation
 docs: ## Generate documentation
 	@echo "📚 Generating documentation..."
-	@cd backend && swag init -g cmd/server/main.go
+	@cd backend && swag init -g cmd/server/main.go --output ./ --parseDependency --parseInternal --parseDepth 1
 
 docs-serve: ## Serve documentation
 	@echo "📚 Serving documentation..."

@@ -37,10 +37,10 @@ func NewPasswordResetHandler(
 // @Produce json
 // @Param request body dto.RequestPasswordResetRequest true "Password reset request"
 // @Success 200 {object} dto.RequestPasswordResetResponse
-// @Failure 400 {object} response.ErrorResponse
-// @Failure 429 {object} response.ErrorResponse "Too many requests"
-// @Failure 500 {object} response.ErrorResponse
-// @Router /auth/password/reset/request [post]
+// @Failure 400 {object} response.Response
+// @Failure 429 {object} response.Response "Too many requests"
+// @Failure 500 {object} response.Response
+// @Router /api/v1/auth/password/reset/request [post]
 func (h *PasswordResetHandler) RequestPasswordReset(c echo.Context) error {
 	var req dto.RequestPasswordResetRequest
 
@@ -77,10 +77,10 @@ func (h *PasswordResetHandler) RequestPasswordReset(c echo.Context) error {
 // @Produce json
 // @Param request body dto.ConfirmPasswordResetRequest true "Password reset confirmation"
 // @Success 200 {object} dto.ConfirmPasswordResetResponse
-// @Failure 400 {object} response.ErrorResponse
-// @Failure 404 {object} response.ErrorResponse "Invalid or expired token"
-// @Failure 500 {object} response.ErrorResponse
-// @Router /auth/password/reset/confirm [post]
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response "Invalid or expired token"
+// @Failure 500 {object} response.Response
+// @Router /api/v1/auth/password/reset/confirm [post]
 func (h *PasswordResetHandler) ConfirmPasswordReset(c echo.Context) error {
 	var req dto.ConfirmPasswordResetRequest
 
@@ -122,11 +122,11 @@ func (h *PasswordResetHandler) ConfirmPasswordReset(c echo.Context) error {
 // @Security BearerAuth
 // @Param request body dto.UpdatePasswordRequest true "Password update request"
 // @Success 200 {object} dto.UpdatePasswordResponse
-// @Failure 400 {object} response.ErrorResponse
-// @Failure 401 {object} response.ErrorResponse "Unauthorized"
-// @Failure 403 {object} response.ErrorResponse "MFA required"
-// @Failure 500 {object} response.ErrorResponse
-// @Router /auth/password/update [put]
+// @Failure 400 {object} response.Response
+// @Failure 401 {object} response.Response "Unauthorized"
+// @Failure 403 {object} response.Response "MFA required"
+// @Failure 500 {object} response.Response
+// @Router /api/v1/auth/password/update [put]
 func (h *PasswordResetHandler) UpdatePassword(c echo.Context) error {
 	var req dto.UpdatePasswordRequest
 

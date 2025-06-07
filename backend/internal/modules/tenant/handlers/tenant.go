@@ -46,10 +46,10 @@ func NewTenantHandler(
 // @Accept json
 // @Produce json
 // @Param request body dto.CreateTenantRequest true "Tenant creation request"
-// @Success 201 {object} dto.APIResponse{data=dto.TenantResponse} "Tenant created successfully"
-// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid request data"
-// @Failure 409 {object} dto.APIResponse{error=dto.APIError} "Slug or domain already exists"
-// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Success 201 {object} response.Response{data=dto.TenantResponse} "Tenant created successfully"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Invalid request data"
+// @Failure 409 {object} response.Response{error=response.ErrorInfo} "Slug or domain already exists"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /api/v1/tenants [post]
 // @Security BearerAuth
 func (h *TenantHandler) CreateTenant(c echo.Context) error {
@@ -103,10 +103,10 @@ func (h *TenantHandler) CreateTenant(c echo.Context) error {
 // @Accept json
 // @Produce json
 // @Param id path string true "Tenant ID" format(uuid)
-// @Success 200 {object} dto.APIResponse{data=dto.TenantResponse} "Tenant retrieved successfully"
-// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid tenant ID"
-// @Failure 404 {object} dto.APIResponse{error=dto.APIError} "Tenant not found"
-// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Success 200 {object} response.Response{data=dto.TenantResponse} "Tenant retrieved successfully"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Invalid tenant ID"
+// @Failure 404 {object} response.Response{error=response.ErrorInfo} "Tenant not found"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /api/v1/tenants/{id} [get]
 // @Security BearerAuth
 func (h *TenantHandler) GetTenant(c echo.Context) error {
@@ -144,18 +144,18 @@ func (h *TenantHandler) GetTenant(c echo.Context) error {
 // @Accept json
 // @Produce json
 // @Param slug path string true "Tenant slug"
-// @Success 200 {object} dto.APIResponse{data=dto.TenantResponse} "Tenant retrieved successfully"
-// @Failure 404 {object} dto.APIResponse{error=dto.APIError} "Tenant not found"
-// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Success 200 {object} response.Response{data=dto.TenantResponse} "Tenant retrieved successfully"
+// @Failure 404 {object} response.Response{error=response.ErrorInfo} "Tenant not found"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /api/v1/tenants/slug/{slug} [get]
 // @Security BearerAuth
 func (h *TenantHandler) GetTenantBySlug(c echo.Context) error {
 	slug := c.Param("slug")
 	if slug == "" {
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
+		return c.JSON(http.StatusBadRequest, response.Response{
 			Success: false,
 			Message: "Slug is required",
-			Error: &dto.APIError{
+			Error: &response.ErrorInfo{
 				Code:    "INVALID_SLUG",
 				Message: "Slug parameter is required",
 			},
@@ -184,11 +184,11 @@ func (h *TenantHandler) GetTenantBySlug(c echo.Context) error {
 // @Produce json
 // @Param id path string true "Tenant ID" format(uuid)
 // @Param request body dto.UpdateTenantRequest true "Tenant update request"
-// @Success 200 {object} dto.APIResponse{data=dto.TenantResponse} "Tenant updated successfully"
-// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid request data"
-// @Failure 404 {object} dto.APIResponse{error=dto.APIError} "Tenant not found"
-// @Failure 409 {object} dto.APIResponse{error=dto.APIError} "Domain already exists"
-// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Success 200 {object} response.Response{data=dto.TenantResponse} "Tenant updated successfully"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Invalid request data"
+// @Failure 404 {object} response.Response{error=response.ErrorInfo} "Tenant not found"
+// @Failure 409 {object} response.Response{error=response.ErrorInfo} "Domain already exists"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /api/v1/tenants/{id} [put]
 // @Security BearerAuth
 func (h *TenantHandler) UpdateTenant(c echo.Context) error {
@@ -245,10 +245,10 @@ func (h *TenantHandler) UpdateTenant(c echo.Context) error {
 // @Produce json
 // @Param id path string true "Tenant ID" format(uuid)
 // @Param reason query string false "Deletion reason"
-// @Success 200 {object} dto.APIResponse{} "Tenant deleted successfully"
-// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid tenant ID"
-// @Failure 404 {object} dto.APIResponse{error=dto.APIError} "Tenant not found"
-// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Success 200 {object} response.Response{} "Tenant deleted successfully"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Invalid tenant ID"
+// @Failure 404 {object} response.Response{error=response.ErrorInfo} "Tenant not found"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /api/v1/tenants/{id} [delete]
 // @Security BearerAuth
 func (h *TenantHandler) DeleteTenant(c echo.Context) error {
@@ -291,9 +291,9 @@ func (h *TenantHandler) DeleteTenant(c echo.Context) error {
 // @Param search query string false "Search term"
 // @Param status query string false "Filter by status" Enums(active, inactive, suspended, trial)
 // @Param plan query string false "Filter by plan" Enums(free, pro, enterprise)
-// @Success 200 {object} dto.APIResponse{data=dto.TenantListResponse} "Tenants retrieved successfully"
-// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid query parameters"
-// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Success 200 {object} response.Response{data=dto.TenantListResponse} "Tenants retrieved successfully"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Invalid query parameters"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /api/v1/tenants [get]
 // @Security BearerAuth
 func (h *TenantHandler) ListTenants(c echo.Context) error {
@@ -339,19 +339,19 @@ func (h *TenantHandler) ListTenants(c echo.Context) error {
 // @Produce json
 // @Param id path string true "Tenant ID" format(uuid)
 // @Param reason query string false "Activation reason"
-// @Success 200 {object} dto.APIResponse{data=dto.TenantResponse} "Tenant activated successfully"
-// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid tenant ID"
-// @Failure 404 {object} dto.APIResponse{error=dto.APIError} "Tenant not found"
-// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Success 200 {object} response.Response{data=dto.TenantResponse} "Tenant activated successfully"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Invalid tenant ID"
+// @Failure 404 {object} response.Response{error=response.ErrorInfo} "Tenant not found"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /api/v1/tenants/{id}/activate [post]
 // @Security BearerAuth
 func (h *TenantHandler) ActivateTenant(c echo.Context) error {
 	tenantID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
+		return c.JSON(http.StatusBadRequest, response.Response{
 			Success: false,
 			Message: "Invalid tenant ID",
-			Error: &dto.APIError{
+			Error: &response.ErrorInfo{
 				Code:    "INVALID_TENANT_ID",
 				Message: "Invalid tenant ID format",
 			},
@@ -388,19 +388,19 @@ func (h *TenantHandler) ActivateTenant(c echo.Context) error {
 // @Produce json
 // @Param id path string true "Tenant ID" format(uuid)
 // @Param reason query string false "Deactivation reason"
-// @Success 200 {object} dto.APIResponse{data=dto.TenantResponse} "Tenant deactivated successfully"
-// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid tenant ID"
-// @Failure 404 {object} dto.APIResponse{error=dto.APIError} "Tenant not found"
-// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Success 200 {object} response.Response{data=dto.TenantResponse} "Tenant deactivated successfully"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Invalid tenant ID"
+// @Failure 404 {object} response.Response{error=response.ErrorInfo} "Tenant not found"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /api/v1/tenants/{id}/deactivate [post]
 // @Security BearerAuth
 func (h *TenantHandler) DeactivateTenant(c echo.Context) error {
 	tenantID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
+		return c.JSON(http.StatusBadRequest, response.Response{
 			Success: false,
 			Message: "Invalid tenant ID",
-			Error: &dto.APIError{
+			Error: &response.ErrorInfo{
 				Code:    "INVALID_TENANT_ID",
 				Message: "Invalid tenant ID format",
 			},
@@ -422,7 +422,7 @@ func (h *TenantHandler) DeactivateTenant(c echo.Context) error {
 	}
 
 	h.logger.Info("Tenant deactivated successfully", "tenant_id", tenantID)
-	return c.JSON(http.StatusOK, dto.APIResponse{
+	return c.JSON(http.StatusOK, response.Response{
 		Success: true,
 		Message: "Tenant deactivated successfully",
 		Data:    tenant,
@@ -437,19 +437,19 @@ func (h *TenantHandler) DeactivateTenant(c echo.Context) error {
 // @Produce json
 // @Param id path string true "Tenant ID" format(uuid)
 // @Param reason query string true "Suspension reason"
-// @Success 200 {object} dto.APIResponse{data=dto.TenantResponse} "Tenant suspended successfully"
-// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid tenant ID or missing reason"
-// @Failure 404 {object} dto.APIResponse{error=dto.APIError} "Tenant not found"
-// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Success 200 {object} response.Response{data=dto.TenantResponse} "Tenant suspended successfully"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Invalid tenant ID or missing reason"
+// @Failure 404 {object} response.Response{error=response.ErrorInfo} "Tenant not found"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /api/v1/tenants/{id}/suspend [post]
 // @Security BearerAuth
 func (h *TenantHandler) SuspendTenant(c echo.Context) error {
 	tenantID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
+		return c.JSON(http.StatusBadRequest, response.Response{
 			Success: false,
 			Message: "Invalid tenant ID",
-			Error: &dto.APIError{
+			Error: &response.ErrorInfo{
 				Code:    "INVALID_TENANT_ID",
 				Message: "Invalid tenant ID format",
 			},
@@ -471,7 +471,7 @@ func (h *TenantHandler) SuspendTenant(c echo.Context) error {
 	}
 
 	h.logger.Info("Tenant suspended successfully", "tenant_id", tenantID)
-	return c.JSON(http.StatusOK, dto.APIResponse{
+	return c.JSON(http.StatusOK, response.Response{
 		Success: true,
 		Message: "Tenant suspended successfully",
 		Data:    tenant,
@@ -485,19 +485,19 @@ func (h *TenantHandler) SuspendTenant(c echo.Context) error {
 // @Accept json
 // @Produce json
 // @Param request body dto.BulkTenantRequest true "Bulk operation request"
-// @Success 200 {object} dto.APIResponse{data=dto.BulkOperationResponse} "Bulk operation completed"
-// @Failure 400 {object} dto.APIResponse{error=dto.APIError} "Invalid request data"
-// @Failure 500 {object} dto.APIResponse{error=dto.APIError} "Internal server error"
+// @Success 200 {object} response.Response{data=dto.BulkOperationResponse} "Bulk operation completed"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Invalid request data"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /api/v1/tenants/bulk [post]
 // @Security BearerAuth
 func (h *TenantHandler) BulkUpdateTenants(c echo.Context) error {
 	var req dto.BulkTenantRequest
 	if err := c.Bind(&req); err != nil {
 		h.logger.Error("Failed to bind bulk tenant request", "error", err)
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
+		return c.JSON(http.StatusBadRequest, response.Response{
 			Success: false,
 			Message: "Invalid request data",
-			Error: &dto.APIError{
+			Error: &response.ErrorInfo{
 				Code:    "INVALID_REQUEST",
 				Message: "Invalid request data",
 				Details: err.Error(),
@@ -506,17 +506,17 @@ func (h *TenantHandler) BulkUpdateTenants(c echo.Context) error {
 	}
 
 	ctx := h.addUserContextToRequest(c)
-	response, err := h.service.BulkUpdateTenants(ctx, &req)
+	bulkResponse, err := h.service.BulkUpdateTenants(ctx, &req)
 	if err != nil {
 		h.logger.Error("Failed to perform bulk operation", "error", err)
 		return h.handleServiceError(c, err)
 	}
 
-	h.logger.Info("Bulk operation completed", "total", response.TotalProcessed, "success", response.SuccessCount, "errors", response.ErrorCount)
-	return c.JSON(http.StatusOK, dto.APIResponse{
+	h.logger.Info("Bulk operation completed", "total", bulkResponse.TotalProcessed, "success", bulkResponse.SuccessCount, "errors", bulkResponse.ErrorCount)
+	return c.JSON(http.StatusOK, response.Response{
 		Success: true,
 		Message: "Bulk operation completed",
-		Data:    response,
+		Data:    bulkResponse,
 	})
 }
 
@@ -573,37 +573,37 @@ func (h *TenantHandler) handleServiceError(c echo.Context, err error) error {
 	// Map specific errors to HTTP status codes
 	switch {
 	case err.Error() == "tenant already exists":
-		return c.JSON(http.StatusConflict, dto.APIResponse{
+		return c.JSON(http.StatusConflict, response.Response{
 			Success: false,
 			Message: "Tenant already exists",
-			Error: &dto.APIError{
+			Error: &response.ErrorInfo{
 				Code:    "TENANT_EXISTS",
 				Message: "Tenant already exists",
 			},
 		})
 	case err.Error() == "tenant not found" || err.Error() == "failed to retrieve created tenant: tenant not found":
-		return c.JSON(http.StatusNotFound, dto.APIResponse{
+		return c.JSON(http.StatusNotFound, response.Response{
 			Success: false,
 			Message: "Tenant not found",
-			Error: &dto.APIError{
+			Error: &response.ErrorInfo{
 				Code:    "TENANT_NOT_FOUND",
 				Message: "Tenant not found",
 			},
 		})
 	case err.Error() == "tenant slug already exists" || err.Error() == "tenant domain already exists":
-		return c.JSON(http.StatusConflict, dto.APIResponse{
+		return c.JSON(http.StatusConflict, response.Response{
 			Success: false,
 			Message: "Resource already exists",
-			Error: &dto.APIError{
+			Error: &response.ErrorInfo{
 				Code:    "RESOURCE_EXISTS",
 				Message: err.Error(),
 			},
 		})
 	default:
-		return c.JSON(http.StatusInternalServerError, dto.APIResponse{
+		return c.JSON(http.StatusInternalServerError, response.Response{
 			Success: false,
 			Message: "Internal server error",
-			Error: &dto.APIError{
+			Error: &response.ErrorInfo{
 				Code:    "INTERNAL_ERROR",
 				Message: "An internal error occurred",
 				Details: err.Error(),
