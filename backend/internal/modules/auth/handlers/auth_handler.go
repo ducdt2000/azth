@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/ducdt2000/azth/backend/internal/modules/auth/dto"
 	"github.com/ducdt2000/azth/backend/internal/modules/auth/service"
+	"github.com/ducdt2000/azth/backend/pkg/response"
 	"github.com/ducdt2000/azth/backend/pkg/validator"
 )
 
@@ -19,14 +19,20 @@ type AuthHandler struct {
 	authService service.AuthService
 	validator   *validator.CustomValidator
 	tracer      trace.Tracer
+	response    *response.ResponseBuilder
 }
 
 // NewAuthHandler creates a new authentication handler
-func NewAuthHandler(authService service.AuthService, validator *validator.CustomValidator) *AuthHandler {
+func NewAuthHandler(
+	authService service.AuthService,
+	validator *validator.CustomValidator,
+	responseBuilder *response.ResponseBuilder,
+) *AuthHandler {
 	return &AuthHandler{
 		authService: authService,
 		validator:   validator,
 		tracer:      otel.Tracer("auth-handler"),
+		response:    responseBuilder,
 	}
 }
 
@@ -59,11 +65,11 @@ func (h *AuthHandler) RegisterRoutes(g *echo.Group) {
 // @Accept json
 // @Produce json
 // @Param request body dto.LoginRequest true "Login request"
-// @Success 200 {object} dto.LoginResponse "Login successful"
-// @Failure 400 {object} echo.HTTPError "Bad request"
-// @Failure 401 {object} echo.HTTPError "Unauthorized"
-// @Failure 423 {object} echo.HTTPError "Account locked"
-// @Failure 500 {object} echo.HTTPError "Internal server error"
+// @Success 200 {object} response.Response{data=dto.LoginResponse} "Login successful"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Bad request"
+// @Failure 401 {object} response.Response{error=response.ErrorInfo} "Unauthorized"
+// @Failure 423 {object} response.Response{error=response.ErrorInfo} "Account locked"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/login [post]
 func (h *AuthHandler) Login(c echo.Context) error {
 	ctx, span := h.tracer.Start(c.Request().Context(), "auth.handler.Login")
@@ -72,7 +78,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	var req dto.LoginRequest
 	if err := c.Bind(&req); err != nil {
 		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
+		})
 	}
 
 	// Add IP address and user agent to request
@@ -82,18 +91,25 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	// Validate request
 	if err := h.validator.Validate(&req); err != nil {
 		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "validation",
+			"error": err.Error(),
+		})
 	}
 
 	// Perform login
-	response, err := h.authService.Login(ctx, &req)
+	loginResponse, err := h.authService.Login(ctx, &req)
 	if err != nil {
 		span.RecordError(err)
-		return h.handleAuthError(err)
+		return h.response.AuthServiceError(c, err)
 	}
 
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
 	span.AddEvent("login successful")
-	return c.JSON(http.StatusOK, response)
+	return h.response.Success(c, response.AUTH_LOGIN_SUCCESS, loginResponse, meta)
 }
 
 // RefreshToken handles token refresh
@@ -103,10 +119,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 // @Accept json
 // @Produce json
 // @Param request body dto.RefreshRequest true "Refresh request"
-// @Success 200 {object} dto.RefreshResponse "Token refreshed"
-// @Failure 400 {object} echo.HTTPError "Bad request"
-// @Failure 401 {object} echo.HTTPError "Invalid refresh token"
-// @Failure 500 {object} echo.HTTPError "Internal server error"
+// @Success 200 {object} response.Response{data=dto.RefreshResponse} "Token refreshed"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Bad request"
+// @Failure 401 {object} response.Response{error=response.ErrorInfo} "Invalid refresh token"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/refresh [post]
 func (h *AuthHandler) RefreshToken(c echo.Context) error {
 	ctx, span := h.tracer.Start(c.Request().Context(), "auth.handler.RefreshToken")
@@ -115,7 +131,10 @@ func (h *AuthHandler) RefreshToken(c echo.Context) error {
 	var req dto.RefreshRequest
 	if err := c.Bind(&req); err != nil {
 		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
+		})
 	}
 
 	// Add IP address and user agent to request
@@ -125,18 +144,25 @@ func (h *AuthHandler) RefreshToken(c echo.Context) error {
 	// Validate request
 	if err := h.validator.Validate(&req); err != nil {
 		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "validation",
+			"error": err.Error(),
+		})
 	}
 
 	// Refresh token
-	response, err := h.authService.RefreshToken(ctx, req.RefreshToken)
+	refreshResponse, err := h.authService.RefreshToken(ctx, req.RefreshToken)
 	if err != nil {
 		span.RecordError(err)
-		return h.handleAuthError(err)
+		return h.response.AuthServiceError(c, err)
 	}
 
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
 	span.AddEvent("token refreshed successfully")
-	return c.JSON(http.StatusOK, response)
+	return h.response.Success(c, response.AUTH_TOKEN_REFRESHED, refreshResponse, meta)
 }
 
 // Logout handles user logout
@@ -147,10 +173,10 @@ func (h *AuthHandler) RefreshToken(c echo.Context) error {
 // @Produce json
 // @Param request body dto.LogoutRequest true "Logout request"
 // @Security BearerAuth
-// @Success 200 {object} map[string]string "Logout successful"
-// @Failure 400 {object} echo.HTTPError "Bad request"
-// @Failure 401 {object} echo.HTTPError "Unauthorized"
-// @Failure 500 {object} echo.HTTPError "Internal server error"
+// @Success 200 {object} response.Response "Logout successful"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Bad request"
+// @Failure 401 {object} response.Response{error=response.ErrorInfo} "Unauthorized"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/logout [post]
 func (h *AuthHandler) Logout(c echo.Context) error {
 	ctx, span := h.tracer.Start(c.Request().Context(), "auth.handler.Logout")
@@ -160,7 +186,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 	token := h.extractTokenFromHeader(c)
 	if token == "" {
 		span.AddEvent("no token provided")
-		return echo.NewHTTPError(http.StatusUnauthorized, "No token provided")
+		return h.response.Unauthorized(c, response.AUTH_TOKEN_MISSING, nil)
 	}
 
 	var req dto.LogoutRequest
@@ -174,24 +200,26 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 		session, err := h.authService.GetSession(ctx, token)
 		if err != nil {
 			span.RecordError(err)
-			return h.handleAuthError(err)
+			return h.response.AuthServiceError(c, err)
 		}
 
 		// Logout from all sessions
 		if err := h.authService.LogoutAll(ctx, session.UserID); err != nil {
 			span.RecordError(err)
-			return h.handleAuthError(err)
+			return h.response.AuthServiceError(c, err)
 		}
 	} else {
 		// Logout from current session only
 		if err := h.authService.Logout(ctx, token); err != nil {
 			span.RecordError(err)
-			return h.handleAuthError(err)
+			return h.response.AuthServiceError(c, err)
 		}
 	}
 
 	span.AddEvent("logout successful")
-	return c.JSON(http.StatusOK, map[string]string{"message": "Logout successful"})
+	return h.response.Success(c, response.AUTH_LOGOUT_SUCCESS, map[string]interface{}{
+		"all_sessions": req.All,
+	})
 }
 
 // GetSessions retrieves user sessions
@@ -200,101 +228,86 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 // @Tags auth
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.SessionListResponse "Sessions retrieved"
-// @Failure 401 {object} echo.HTTPError "Unauthorized"
-// @Failure 500 {object} echo.HTTPError "Internal server error"
+// @Success 200 {object} response.Response{data=[]dto.SessionResponse} "Sessions retrieved successfully"
+// @Failure 401 {object} response.Response{error=response.ErrorInfo} "Unauthorized"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/sessions [get]
 func (h *AuthHandler) GetSessions(c echo.Context) error {
 	ctx, span := h.tracer.Start(c.Request().Context(), "auth.handler.GetSessions")
 	defer span.End()
 
-	// Extract token and get session
+	// Extract token from header
 	token := h.extractTokenFromHeader(c)
 	if token == "" {
 		span.AddEvent("no token provided")
-		return echo.NewHTTPError(http.StatusUnauthorized, "No token provided")
+		return h.response.Unauthorized(c, response.AUTH_TOKEN_MISSING, nil)
 	}
 
-	session, err := h.authService.ValidateSession(ctx, token)
+	// Get session to extract user ID
+	session, err := h.authService.GetSession(ctx, token)
 	if err != nil {
 		span.RecordError(err)
-		return h.handleAuthError(err)
+		return h.response.AuthServiceError(c, err)
 	}
 
 	// Get all user sessions
 	sessions, err := h.authService.GetUserSessions(ctx, session.UserID)
 	if err != nil {
 		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to get sessions")
+		return h.response.AuthServiceError(c, err)
 	}
 
-	// Convert to response format
-	sessionInfos := make([]dto.SessionInfo, len(sessions))
-	for i, s := range sessions {
-		sessionInfos[i] = dto.SessionInfo{
-			ID:           s.ID,
-			IPAddress:    s.IPAddress,
-			UserAgent:    s.UserAgent,
-			LastActivity: s.LastActivity,
-			ExpiresAt:    s.ExpiresAt,
-			CreatedAt:    s.CreatedAt,
-		}
-	}
-
-	response := dto.SessionListResponse{
-		Sessions: sessionInfos,
-		Total:    len(sessionInfos),
-	}
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
 
 	span.AddEvent("sessions retrieved successfully")
-	return c.JSON(http.StatusOK, response)
+	return h.response.Success(c, response.AUTH_SESSIONS_LISTED, sessions, meta)
 }
 
 // RevokeSession revokes a specific session
 // @Summary Revoke session
-// @Description Revoke a specific session by ID
+// @Description Revoke a specific user session by ID
 // @Tags auth
-// @Param id path string true "Session ID"
+// @Param id path string true "Session ID" format(uuid)
 // @Security BearerAuth
-// @Success 200 {object} map[string]string "Session revoked"
-// @Failure 400 {object} echo.HTTPError "Bad request"
-// @Failure 401 {object} echo.HTTPError "Unauthorized"
-// @Failure 404 {object} echo.HTTPError "Session not found"
-// @Failure 500 {object} echo.HTTPError "Internal server error"
+// @Success 200 {object} response.Response "Session revoked successfully"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Invalid session ID"
+// @Failure 401 {object} response.Response{error=response.ErrorInfo} "Unauthorized"
+// @Failure 404 {object} response.Response{error=response.ErrorInfo} "Session not found"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/sessions/{id} [delete]
 func (h *AuthHandler) RevokeSession(c echo.Context) error {
 	ctx, span := h.tracer.Start(c.Request().Context(), "auth.handler.RevokeSession")
 	defer span.End()
 
-	// Extract token and validate session
+	// Extract token from header
 	token := h.extractTokenFromHeader(c)
 	if token == "" {
 		span.AddEvent("no token provided")
-		return echo.NewHTTPError(http.StatusUnauthorized, "No token provided")
-	}
-
-	_, err := h.authService.ValidateSession(ctx, token)
-	if err != nil {
-		span.RecordError(err)
-		return h.handleAuthError(err)
+		return h.response.Unauthorized(c, response.AUTH_TOKEN_MISSING, nil)
 	}
 
 	// Parse session ID
 	sessionIDStr := c.Param("id")
 	sessionID, err := uuid.Parse(sessionIDStr)
 	if err != nil {
-		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusBadRequest, "Invalid session ID")
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": sessionIDStr,
+		})
 	}
 
 	// Revoke session
 	if err := h.authService.RevokeSession(ctx, sessionID, "user_revoke"); err != nil {
 		span.RecordError(err)
-		return h.handleAuthError(err)
+		return h.response.AuthServiceError(c, err)
 	}
 
 	span.AddEvent("session revoked successfully")
-	return c.JSON(http.StatusOK, map[string]string{"message": "Session revoked successfully"})
+	return h.response.Success(c, response.AUTH_SESSION_REVOKED, map[string]interface{}{
+		"session_id": sessionID,
+	})
 }
 
 // LogoutAll handles logout from all sessions
@@ -302,35 +315,38 @@ func (h *AuthHandler) RevokeSession(c echo.Context) error {
 // @Description Logout user from all active sessions
 // @Tags auth
 // @Security BearerAuth
-// @Success 200 {object} map[string]string "Logout successful"
-// @Failure 401 {object} echo.HTTPError "Unauthorized"
-// @Failure 500 {object} echo.HTTPError "Internal server error"
+// @Success 200 {object} response.Response "Logged out from all sessions"
+// @Failure 401 {object} response.Response{error=response.ErrorInfo} "Unauthorized"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/sessions [delete]
 func (h *AuthHandler) LogoutAll(c echo.Context) error {
 	ctx, span := h.tracer.Start(c.Request().Context(), "auth.handler.LogoutAll")
 	defer span.End()
 
-	// Extract token and get session
+	// Extract token from header
 	token := h.extractTokenFromHeader(c)
 	if token == "" {
 		span.AddEvent("no token provided")
-		return echo.NewHTTPError(http.StatusUnauthorized, "No token provided")
+		return h.response.Unauthorized(c, response.AUTH_TOKEN_MISSING, nil)
 	}
 
-	session, err := h.authService.ValidateSession(ctx, token)
+	// Get session to extract user ID
+	session, err := h.authService.GetSession(ctx, token)
 	if err != nil {
 		span.RecordError(err)
-		return h.handleAuthError(err)
+		return h.response.AuthServiceError(c, err)
 	}
 
 	// Logout from all sessions
 	if err := h.authService.LogoutAll(ctx, session.UserID); err != nil {
 		span.RecordError(err)
-		return h.handleAuthError(err)
+		return h.response.AuthServiceError(c, err)
 	}
 
-	span.AddEvent("logout all successful")
-	return c.JSON(http.StatusOK, map[string]string{"message": "Logout from all sessions successful"})
+	span.AddEvent("logout from all sessions successful")
+	return h.response.Success(c, response.AUTH_LOGOUT_SUCCESS, map[string]interface{}{
+		"all_sessions": true,
+	})
 }
 
 // EnableMFA enables multi-factor authentication
@@ -339,9 +355,9 @@ func (h *AuthHandler) LogoutAll(c echo.Context) error {
 // @Tags auth
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} dto.MFASetupResponse "MFA enabled"
-// @Failure 401 {object} echo.HTTPError "Unauthorized"
-// @Failure 500 {object} echo.HTTPError "Internal server error"
+// @Success 200 {object} response.Response{data=dto.MFAEnableResponse} "MFA enabled successfully"
+// @Failure 401 {object} response.Response{error=response.ErrorInfo} "Unauthorized"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/mfa/enable [post]
 func (h *AuthHandler) EnableMFA(c echo.Context) error {
 	ctx, span := h.tracer.Start(c.Request().Context(), "auth.handler.EnableMFA")
@@ -351,24 +367,28 @@ func (h *AuthHandler) EnableMFA(c echo.Context) error {
 	token := h.extractTokenFromHeader(c)
 	if token == "" {
 		span.AddEvent("no token provided")
-		return echo.NewHTTPError(http.StatusUnauthorized, "No token provided")
+		return h.response.Unauthorized(c, response.AUTH_TOKEN_MISSING, nil)
 	}
 
 	session, err := h.authService.ValidateSession(ctx, token)
 	if err != nil {
 		span.RecordError(err)
-		return h.handleAuthError(err)
+		return h.response.AuthServiceError(c, err)
 	}
 
 	// Enable MFA
-	response, err := h.authService.EnableMFA(ctx, session.UserID)
+	mfaResponse, err := h.authService.EnableMFA(ctx, session.UserID)
 	if err != nil {
 		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to enable MFA")
+		return h.response.AuthServiceError(c, err)
 	}
 
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
 	span.AddEvent("MFA enabled successfully")
-	return c.JSON(http.StatusOK, response)
+	return h.response.Success(c, response.AUTH_MFA_ENABLED, mfaResponse, meta)
 }
 
 // DisableMFA disables multi-factor authentication
@@ -376,9 +396,9 @@ func (h *AuthHandler) EnableMFA(c echo.Context) error {
 // @Description Disable multi-factor authentication for the user
 // @Tags auth
 // @Security BearerAuth
-// @Success 200 {object} map[string]string "MFA disabled"
-// @Failure 401 {object} echo.HTTPError "Unauthorized"
-// @Failure 500 {object} echo.HTTPError "Internal server error"
+// @Success 200 {object} response.Response "MFA disabled successfully"
+// @Failure 401 {object} response.Response{error=response.ErrorInfo} "Unauthorized"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/mfa/disable [delete]
 func (h *AuthHandler) DisableMFA(c echo.Context) error {
 	ctx, span := h.tracer.Start(c.Request().Context(), "auth.handler.DisableMFA")
@@ -388,23 +408,25 @@ func (h *AuthHandler) DisableMFA(c echo.Context) error {
 	token := h.extractTokenFromHeader(c)
 	if token == "" {
 		span.AddEvent("no token provided")
-		return echo.NewHTTPError(http.StatusUnauthorized, "No token provided")
+		return h.response.Unauthorized(c, response.AUTH_TOKEN_MISSING, nil)
 	}
 
 	session, err := h.authService.ValidateSession(ctx, token)
 	if err != nil {
 		span.RecordError(err)
-		return h.handleAuthError(err)
+		return h.response.AuthServiceError(c, err)
 	}
 
 	// Disable MFA
 	if err := h.authService.DisableMFA(ctx, session.UserID); err != nil {
 		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to disable MFA")
+		return h.response.AuthServiceError(c, err)
 	}
 
 	span.AddEvent("MFA disabled successfully")
-	return c.JSON(http.StatusOK, map[string]string{"message": "MFA disabled successfully"})
+	return h.response.Success(c, response.AUTH_MFA_DISABLED, map[string]interface{}{
+		"user_id": session.UserID,
+	})
 }
 
 // ValidateMFA validates MFA code
@@ -415,10 +437,10 @@ func (h *AuthHandler) DisableMFA(c echo.Context) error {
 // @Produce json
 // @Param request body dto.MFAValidateRequest true "MFA validation request"
 // @Security BearerAuth
-// @Success 200 {object} map[string]bool "MFA validation result"
-// @Failure 400 {object} echo.HTTPError "Bad request"
-// @Failure 401 {object} echo.HTTPError "Unauthorized"
-// @Failure 500 {object} echo.HTTPError "Internal server error"
+// @Success 200 {object} response.Response{data=map[string]bool} "MFA validation result"
+// @Failure 400 {object} response.Response{error=response.ErrorInfo} "Bad request"
+// @Failure 401 {object} response.Response{error=response.ErrorInfo} "Unauthorized"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/mfa/validate [post]
 func (h *AuthHandler) ValidateMFA(c echo.Context) error {
 	ctx, span := h.tracer.Start(c.Request().Context(), "auth.handler.ValidateMFA")
@@ -427,24 +449,41 @@ func (h *AuthHandler) ValidateMFA(c echo.Context) error {
 	var req dto.MFAValidateRequest
 	if err := c.Bind(&req); err != nil {
 		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body")
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
+		})
 	}
 
 	// Validate request
 	if err := h.validator.Validate(&req); err != nil {
 		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "validation",
+			"error": err.Error(),
+		})
 	}
 
 	// Validate MFA
 	valid, err := h.authService.ValidateMFA(ctx, req.UserID, req.Code)
 	if err != nil {
 		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to validate MFA")
+		return h.response.AuthServiceError(c, err)
 	}
 
+	responseCode := response.AUTH_MFA_VALIDATED
+	if !valid {
+		responseCode = response.AUTH_MFA_INVALID_CODE
+	}
+
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
 	span.AddEvent("MFA validation completed")
-	return c.JSON(http.StatusOK, map[string]bool{"valid": valid})
+	return h.response.Success(c, responseCode, map[string]interface{}{
+		"valid": valid,
+	}, meta)
 }
 
 // GenerateBackupCodes generates new backup codes
@@ -453,9 +492,9 @@ func (h *AuthHandler) ValidateMFA(c echo.Context) error {
 // @Tags auth
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} map[string][]string "Backup codes generated"
-// @Failure 401 {object} echo.HTTPError "Unauthorized"
-// @Failure 500 {object} echo.HTTPError "Internal server error"
+// @Success 200 {object} response.Response{data=map[string][]string} "Backup codes generated"
+// @Failure 401 {object} response.Response{error=response.ErrorInfo} "Unauthorized"
+// @Failure 500 {object} response.Response{error=response.ErrorInfo} "Internal server error"
 // @Router /auth/mfa/backup-codes [post]
 func (h *AuthHandler) GenerateBackupCodes(c echo.Context) error {
 	ctx, span := h.tracer.Start(c.Request().Context(), "auth.handler.GenerateBackupCodes")
@@ -465,24 +504,31 @@ func (h *AuthHandler) GenerateBackupCodes(c echo.Context) error {
 	token := h.extractTokenFromHeader(c)
 	if token == "" {
 		span.AddEvent("no token provided")
-		return echo.NewHTTPError(http.StatusUnauthorized, "No token provided")
+		return h.response.Unauthorized(c, response.AUTH_TOKEN_MISSING, nil)
 	}
 
 	session, err := h.authService.ValidateSession(ctx, token)
 	if err != nil {
 		span.RecordError(err)
-		return h.handleAuthError(err)
+		return h.response.AuthServiceError(c, err)
 	}
 
 	// Generate backup codes
 	codes, err := h.authService.GenerateBackupCodes(ctx, session.UserID)
 	if err != nil {
 		span.RecordError(err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to generate backup codes")
+		return h.response.AuthServiceError(c, err)
 	}
 
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
 	span.AddEvent("backup codes generated successfully")
-	return c.JSON(http.StatusOK, map[string][]string{"backup_codes": codes})
+	return h.response.Success(c, response.AUTH_BACKUP_CODES_GEN, map[string]interface{}{
+		"backup_codes": codes,
+		"count":        len(codes),
+	}, meta)
 }
 
 // Helper methods
@@ -518,31 +564,4 @@ func (h *AuthHandler) getClientIP(c echo.Context) string {
 
 	// Fall back to remote address
 	return c.RealIP()
-}
-
-func (h *AuthHandler) handleAuthError(err error) error {
-	if authErr, ok := err.(*dto.AuthError); ok {
-		switch authErr.Code {
-		case dto.ErrCodeInvalidCredentials:
-			return echo.NewHTTPError(http.StatusUnauthorized, authErr.Message)
-		case dto.ErrCodeAccountLocked:
-			return echo.NewHTTPError(http.StatusLocked, authErr.Message)
-		case dto.ErrCodeMFARequired:
-			return echo.NewHTTPError(http.StatusUnauthorized, authErr.Message)
-		case dto.ErrCodeInvalidMFA:
-			return echo.NewHTTPError(http.StatusUnauthorized, authErr.Message)
-		case dto.ErrCodeSessionExpired, dto.ErrCodeSessionNotFound:
-			return echo.NewHTTPError(http.StatusUnauthorized, authErr.Message)
-		case dto.ErrCodeInvalidToken:
-			return echo.NewHTTPError(http.StatusUnauthorized, authErr.Message)
-		case dto.ErrCodeUserNotFound:
-			return echo.NewHTTPError(http.StatusNotFound, authErr.Message)
-		case dto.ErrCodeTenantNotFound:
-			return echo.NewHTTPError(http.StatusNotFound, authErr.Message)
-		default:
-			return echo.NewHTTPError(http.StatusInternalServerError, "Authentication service error")
-		}
-	}
-
-	return echo.NewHTTPError(http.StatusInternalServerError, "Internal server error")
 }

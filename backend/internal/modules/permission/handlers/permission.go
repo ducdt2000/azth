@@ -7,6 +7,7 @@ import (
 	"github.com/ducdt2000/azth/backend/internal/modules/permission/dto"
 	"github.com/ducdt2000/azth/backend/internal/modules/permission/service"
 	"github.com/ducdt2000/azth/backend/pkg/logger"
+	"github.com/ducdt2000/azth/backend/pkg/response"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"go.opentelemetry.io/otel"
@@ -20,13 +21,19 @@ var tracer = otel.Tracer("permission-handler")
 type PermissionHandler struct {
 	permissionService service.PermissionService
 	logger            *logger.Logger
+	response          *response.ResponseBuilder
 }
 
 // NewPermissionHandler creates a new permission handler
-func NewPermissionHandler(permissionService service.PermissionService, logger *logger.Logger) *PermissionHandler {
+func NewPermissionHandler(
+	permissionService service.PermissionService,
+	logger *logger.Logger,
+	responseBuilder *response.ResponseBuilder,
+) *PermissionHandler {
 	return &PermissionHandler{
 		permissionService: permissionService,
 		logger:            logger,
+		response:          responseBuilder,
 	}
 }
 
@@ -38,15 +45,14 @@ func (h *PermissionHandler) CreatePermission(c echo.Context) error {
 	var req dto.PermissionRequest
 	if err := c.Bind(&req); err != nil {
 		h.logger.Error("Failed to bind permission request", "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid request body",
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
 		})
 	}
 
 	span.SetAttributes(
 		attribute.String("permission.name", req.Name),
-		attribute.String("permission.code", req.Code),
-		attribute.String("permission.module", req.Module),
 		attribute.String("permission.resource", req.Resource),
 		attribute.String("permission.action", req.Action),
 	)
@@ -54,12 +60,14 @@ func (h *PermissionHandler) CreatePermission(c echo.Context) error {
 	permission, err := h.permissionService.CreatePermission(ctx, &req)
 	if err != nil {
 		h.logger.Error("Failed to create permission", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, permission)
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
+	return h.response.Created(c, response.PERMISSION_CREATED, permission, meta)
 }
 
 // GetPermission handles GET /api/v1/permissions/:id
@@ -70,8 +78,9 @@ func (h *PermissionHandler) GetPermission(c echo.Context) error {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid permission ID",
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": idStr,
 		})
 	}
 
@@ -80,12 +89,14 @@ func (h *PermissionHandler) GetPermission(c echo.Context) error {
 	permission, err := h.permissionService.GetPermission(ctx, id)
 	if err != nil {
 		h.logger.Error("Failed to get permission", "error", err, "permission_id", id)
-		return c.JSON(http.StatusNotFound, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, permission)
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
+	return h.response.Success(c, response.PERMISSION_RETRIEVED, permission, meta)
 }
 
 // GetPermissionByCode handles GET /api/v1/permissions/code/:code
@@ -115,16 +126,18 @@ func (h *PermissionHandler) UpdatePermission(c echo.Context) error {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid permission ID",
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": idStr,
 		})
 	}
 
 	var req dto.UpdatePermissionRequest
 	if err := c.Bind(&req); err != nil {
 		h.logger.Error("Failed to bind update permission request", "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid request body",
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
 		})
 	}
 
@@ -133,12 +146,14 @@ func (h *PermissionHandler) UpdatePermission(c echo.Context) error {
 	permission, err := h.permissionService.UpdatePermission(ctx, id, &req)
 	if err != nil {
 		h.logger.Error("Failed to update permission", "error", err, "permission_id", id)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, permission)
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
+	return h.response.Success(c, response.PERMISSION_UPDATED, permission, meta)
 }
 
 // DeletePermission handles DELETE /api/v1/permissions/:id
@@ -149,8 +164,9 @@ func (h *PermissionHandler) DeletePermission(c echo.Context) error {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid permission ID",
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": idStr,
 		})
 	}
 
@@ -158,13 +174,11 @@ func (h *PermissionHandler) DeletePermission(c echo.Context) error {
 
 	if err := h.permissionService.DeletePermission(ctx, id); err != nil {
 		h.logger.Error("Failed to delete permission", "error", err, "permission_id", id)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "Permission deleted successfully",
+	return h.response.Success(c, response.PERMISSION_DELETED, map[string]interface{}{
+		"permission_id": id,
 	})
 }
 
@@ -190,31 +204,20 @@ func (h *PermissionHandler) ListPermissions(c echo.Context) error {
 
 	// Filters
 	req.Search = c.QueryParam("search")
-	req.Module = c.QueryParam("module")
 	req.Resource = c.QueryParam("resource")
 	req.Action = c.QueryParam("action")
-
-	// Parse boolean query parameters
-	if systemStr := c.QueryParam("is_system"); systemStr != "" {
-		if systemVal, err := strconv.ParseBool(systemStr); err == nil {
-			req.IsSystem = &systemVal
-		}
-	}
-	if defaultStr := c.QueryParam("is_default"); defaultStr != "" {
-		if defaultVal, err := strconv.ParseBool(defaultStr); err == nil {
-			req.IsDefault = &defaultVal
-		}
-	}
 
 	permissions, err := h.permissionService.ListPermissions(ctx, &req)
 	if err != nil {
 		h.logger.Error("Failed to list permissions", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, permissions)
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
+	return h.response.Success(c, response.PERMISSION_RETRIEVED, permissions, meta)
 }
 
 // GetPermissionsByModule handles GET /api/v1/permissions/module/:module

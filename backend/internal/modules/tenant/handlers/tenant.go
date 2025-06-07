@@ -11,22 +11,31 @@ import (
 	"github.com/ducdt2000/azth/backend/internal/modules/tenant/dto"
 	"github.com/ducdt2000/azth/backend/internal/modules/tenant/service"
 	"github.com/ducdt2000/azth/backend/pkg/logger"
+	"github.com/ducdt2000/azth/backend/pkg/response"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+// tracer for OpenTelemetry tracing
+var tracer = otel.Tracer("tenant-handler")
 
 // TenantHandler handles HTTP requests for tenant operations using CQRS pattern
 type TenantHandler struct {
-	service *service.TenantCQRSService
-	logger  *logger.Logger
+	service  *service.TenantCQRSService
+	logger   *logger.Logger
+	response *response.ResponseBuilder
 }
 
 // NewTenantHandler creates a new tenant handler
 func NewTenantHandler(
 	service *service.TenantCQRSService,
 	logger *logger.Logger,
+	responseBuilder *response.ResponseBuilder,
 ) *TenantHandler {
 	return &TenantHandler{
-		service: service,
-		logger:  logger,
+		service:  service,
+		logger:   logger,
+		response: responseBuilder,
 	}
 }
 
@@ -44,49 +53,47 @@ func NewTenantHandler(
 // @Router /api/v1/tenants [post]
 // @Security BearerAuth
 func (h *TenantHandler) CreateTenant(c echo.Context) error {
+	ctx, span := tracer.Start(c.Request().Context(), "TenantHandler.CreateTenant")
+	defer span.End()
+
 	var req dto.CreateTenantRequest
 	if err := c.Bind(&req); err != nil {
 		h.logger.Error("Failed to bind create tenant request", "error", err)
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
-			Success: false,
-			Message: "Invalid request data",
-			Error: &dto.APIError{
-				Code:    "INVALID_REQUEST",
-				Message: "Invalid request data",
-				Details: err.Error(),
-			},
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
 		})
 	}
 
 	if err := c.Validate(&req); err != nil {
 		h.logger.Error("Failed to validate create tenant request", "error", err)
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
-			Success: false,
-			Message: "Validation failed",
-			Error: &dto.APIError{
-				Code:    "VALIDATION_ERROR",
-				Message: "Validation failed",
-				Details: err.Error(),
-			},
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "validation",
+			"error": err.Error(),
 		})
 	}
 
 	// Add user context to request context
-	ctx := h.addUserContextToRequest(c)
+	ctx = h.addUserContextToRequest(c)
+
+	span.SetAttributes(
+		attribute.String("tenant.name", req.Name),
+		attribute.String("tenant.slug", req.Slug),
+	)
 
 	// Call service layer
 	tenant, err := h.service.CreateTenant(ctx, &req)
 	if err != nil {
 		h.logger.Error("Failed to create tenant", "error", err)
-		return h.handleServiceError(c, err)
+		return h.response.ServiceError(c, err)
 	}
 
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
 	h.logger.Info("Tenant created successfully", "tenant_id", tenant.ID, "slug", req.Slug)
-	return c.JSON(http.StatusCreated, dto.APIResponse{
-		Success: true,
-		Message: "Tenant created successfully",
-		Data:    tenant,
-	})
+	return h.response.Created(c, response.TENANT_CREATED, tenant, meta)
 }
 
 // GetTenant godoc
@@ -103,30 +110,31 @@ func (h *TenantHandler) CreateTenant(c echo.Context) error {
 // @Router /api/v1/tenants/{id} [get]
 // @Security BearerAuth
 func (h *TenantHandler) GetTenant(c echo.Context) error {
+	ctx, span := tracer.Start(c.Request().Context(), "TenantHandler.GetTenant")
+	defer span.End()
+
 	tenantID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
-			Success: false,
-			Message: "Invalid tenant ID",
-			Error: &dto.APIError{
-				Code:    "INVALID_TENANT_ID",
-				Message: "Invalid tenant ID format",
-			},
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": c.Param("id"),
 		})
 	}
 
-	ctx := h.addUserContextToRequest(c)
+	span.SetAttributes(attribute.String("tenant.id", tenantID.String()))
+
+	ctx = h.addUserContextToRequest(c)
 	tenant, err := h.service.GetTenant(ctx, tenantID)
 	if err != nil {
 		h.logger.Error("Failed to get tenant", "tenant_id", tenantID, "error", err)
-		return h.handleServiceError(c, err)
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, dto.APIResponse{
-		Success: true,
-		Message: "Tenant retrieved successfully",
-		Data:    tenant,
-	})
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
+	return h.response.Success(c, response.TENANT_RETRIEVED, tenant, meta)
 }
 
 // GetTenantBySlug godoc
@@ -158,14 +166,14 @@ func (h *TenantHandler) GetTenantBySlug(c echo.Context) error {
 	tenant, err := h.service.GetTenantBySlug(ctx, slug)
 	if err != nil {
 		h.logger.Error("Failed to get tenant by slug", "slug", slug, "error", err)
-		return h.handleServiceError(c, err)
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, dto.APIResponse{
-		Success: true,
-		Message: "Tenant retrieved successfully",
-		Data:    tenant,
-	})
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
+	return h.response.Success(c, response.TENANT_RETRIEVED, tenant, meta)
 }
 
 // UpdateTenant godoc
@@ -184,58 +192,49 @@ func (h *TenantHandler) GetTenantBySlug(c echo.Context) error {
 // @Router /api/v1/tenants/{id} [put]
 // @Security BearerAuth
 func (h *TenantHandler) UpdateTenant(c echo.Context) error {
+	ctx, span := tracer.Start(c.Request().Context(), "TenantHandler.UpdateTenant")
+	defer span.End()
+
 	tenantID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
-			Success: false,
-			Message: "Invalid tenant ID",
-			Error: &dto.APIError{
-				Code:    "INVALID_TENANT_ID",
-				Message: "Invalid tenant ID format",
-			},
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": c.Param("id"),
 		})
 	}
 
 	var req dto.UpdateTenantRequest
 	if err := c.Bind(&req); err != nil {
 		h.logger.Error("Failed to bind update tenant request", "error", err)
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
-			Success: false,
-			Message: "Invalid request data",
-			Error: &dto.APIError{
-				Code:    "INVALID_REQUEST",
-				Message: "Invalid request data",
-				Details: err.Error(),
-			},
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
 		})
 	}
 
 	if err := c.Validate(&req); err != nil {
 		h.logger.Error("Failed to validate update tenant request", "error", err)
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
-			Success: false,
-			Message: "Validation failed",
-			Error: &dto.APIError{
-				Code:    "VALIDATION_ERROR",
-				Message: "Validation failed",
-				Details: err.Error(),
-			},
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "validation",
+			"error": err.Error(),
 		})
 	}
 
-	ctx := h.addUserContextToRequest(c)
+	span.SetAttributes(attribute.String("tenant.id", tenantID.String()))
+
+	ctx = h.addUserContextToRequest(c)
 	tenant, err := h.service.UpdateTenant(ctx, tenantID, &req)
 	if err != nil {
 		h.logger.Error("Failed to update tenant", "tenant_id", tenantID, "error", err)
-		return h.handleServiceError(c, err)
+		return h.response.ServiceError(c, err)
 	}
 
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
 	h.logger.Info("Tenant updated successfully", "tenant_id", tenantID)
-	return c.JSON(http.StatusOK, dto.APIResponse{
-		Success: true,
-		Message: "Tenant updated successfully",
-		Data:    tenant,
-	})
+	return h.response.Success(c, response.TENANT_UPDATED, tenant, meta)
 }
 
 // DeleteTenant godoc
@@ -253,29 +252,29 @@ func (h *TenantHandler) UpdateTenant(c echo.Context) error {
 // @Router /api/v1/tenants/{id} [delete]
 // @Security BearerAuth
 func (h *TenantHandler) DeleteTenant(c echo.Context) error {
+	ctx, span := tracer.Start(c.Request().Context(), "TenantHandler.DeleteTenant")
+	defer span.End()
+
 	tenantID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
-			Success: false,
-			Message: "Invalid tenant ID",
-			Error: &dto.APIError{
-				Code:    "INVALID_TENANT_ID",
-				Message: "Invalid tenant ID format",
-			},
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": c.Param("id"),
 		})
 	}
 
-	ctx := h.addUserContextToRequest(c)
+	span.SetAttributes(attribute.String("tenant.id", tenantID.String()))
+
+	ctx = h.addUserContextToRequest(c)
 	err = h.service.DeleteTenant(ctx, tenantID)
 	if err != nil {
 		h.logger.Error("Failed to delete tenant", "tenant_id", tenantID, "error", err)
-		return h.handleServiceError(c, err)
+		return h.response.ServiceError(c, err)
 	}
 
 	h.logger.Info("Tenant deleted successfully", "tenant_id", tenantID)
-	return c.JSON(http.StatusOK, dto.APIResponse{
-		Success: true,
-		Message: "Tenant deleted successfully",
+	return h.response.Success(c, response.TENANT_DELETED, map[string]interface{}{
+		"tenant_id": tenantID,
 	})
 }
 
@@ -298,31 +297,38 @@ func (h *TenantHandler) DeleteTenant(c echo.Context) error {
 // @Router /api/v1/tenants [get]
 // @Security BearerAuth
 func (h *TenantHandler) ListTenants(c echo.Context) error {
+	ctx, span := tracer.Start(c.Request().Context(), "TenantHandler.ListTenants")
+	defer span.End()
+
 	req, err := h.parseTenantListRequest(c)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, dto.APIResponse{
-			Success: false,
-			Message: "Invalid query parameters",
-			Error: &dto.APIError{
-				Code:    "INVALID_PARAMETERS",
-				Message: "Invalid query parameters",
-				Details: err.Error(),
-			},
+		return h.response.BadRequest(c, response.REQUEST_INVALID, map[string]interface{}{
+			"error": err.Error(),
 		})
 	}
 
-	ctx := h.addUserContextToRequest(c)
+	span.SetAttributes(
+		attribute.Int("tenant.page", req.Page),
+		attribute.Int("tenant.limit", req.Limit),
+		attribute.String("tenant.sort", req.Sort),
+		attribute.String("tenant.order", req.Order),
+		attribute.String("tenant.search", req.Search),
+		attribute.String("tenant.status", req.Status),
+		attribute.String("tenant.plan", req.Plan),
+	)
+
+	ctx = h.addUserContextToRequest(c)
 	tenants, err := h.service.ListTenants(ctx, req)
 	if err != nil {
 		h.logger.Error("Failed to list tenants", "error", err)
-		return h.handleServiceError(c, err)
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, dto.APIResponse{
-		Success: true,
-		Message: "Tenants retrieved successfully",
-		Data:    tenants,
-	})
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
+	return h.response.Success(c, response.TENANT_RETRIEVED, tenants, meta)
 }
 
 // ActivateTenant godoc
@@ -356,22 +362,22 @@ func (h *TenantHandler) ActivateTenant(c echo.Context) error {
 	err = h.service.ActivateTenant(ctx, tenantID)
 	if err != nil {
 		h.logger.Error("Failed to activate tenant", "tenant_id", tenantID, "error", err)
-		return h.handleServiceError(c, err)
+		return h.response.ServiceError(c, err)
 	}
 
 	// Get updated tenant for response
 	tenant, err := h.service.GetTenant(ctx, tenantID)
 	if err != nil {
 		h.logger.Error("Failed to retrieve updated tenant", "error", err)
-		return h.handleServiceError(c, err)
+		return h.response.ServiceError(c, err)
 	}
 
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
 	h.logger.Info("Tenant activated successfully", "tenant_id", tenantID)
-	return c.JSON(http.StatusOK, dto.APIResponse{
-		Success: true,
-		Message: "Tenant activated successfully",
-		Data:    tenant,
-	})
+	return h.response.Success(c, response.TENANT_ACTIVATED, tenant, meta)
 }
 
 // DeactivateTenant godoc

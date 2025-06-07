@@ -22,7 +22,7 @@ var ServerModule = fx.Module("server",
 
 // NewRouter creates a new router with injected handlers and middleware
 func NewRouter(
-	userHandler *userHandlers.UserHandler,
+	userHandler *userHandlers.UserHandlerV2,
 	tenantHandler *tenantHandlers.TenantHandler,
 	roleHandler *roleHandlers.RoleHandler,
 	permissionHandler *permissionHandlers.PermissionHandler,

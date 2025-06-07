@@ -14,6 +14,7 @@ import (
 	userHandlers "github.com/ducdt2000/azth/backend/internal/modules/user/handlers"
 	userSvc "github.com/ducdt2000/azth/backend/internal/modules/user/service"
 	"github.com/ducdt2000/azth/backend/pkg/logger"
+	"github.com/ducdt2000/azth/backend/pkg/response"
 	"github.com/ducdt2000/azth/backend/pkg/validator"
 )
 
@@ -29,26 +30,26 @@ var HandlerModule = fx.Module("handlers",
 )
 
 // NewUserHandler creates a new user handler
-func NewUserHandler(userService userSvc.UserService, logger *logger.Logger) *userHandlers.UserHandler {
-	return userHandlers.NewUserHandler(userService, logger)
+func NewUserHandler(userService userSvc.UserService, logger *logger.Logger, responseBuilder *response.ResponseBuilder) *userHandlers.UserHandlerV2 {
+	return userHandlers.NewUserHandlerV2(userService, logger, responseBuilder)
 }
 
 // NewTenantHandler creates a new tenant handler
-func NewTenantHandler(tenantService *tenantSvc.TenantCQRSService, logger *logger.Logger) *tenantHandlers.TenantHandler {
-	return tenantHandlers.NewTenantHandler(tenantService, logger)
+func NewTenantHandler(tenantService *tenantSvc.TenantCQRSService, logger *logger.Logger, responseBuilder *response.ResponseBuilder) *tenantHandlers.TenantHandler {
+	return tenantHandlers.NewTenantHandler(tenantService, logger, responseBuilder)
 }
 
 // NewRoleHandler creates a new role handler
-func NewRoleHandler(roleService roleSvc.RoleService, logger *logger.Logger) *roleHandlers.RoleHandler {
-	return roleHandlers.NewRoleHandler(roleService, logger)
+func NewRoleHandler(roleService roleSvc.RoleService, logger *logger.Logger, responseBuilder *response.ResponseBuilder) *roleHandlers.RoleHandler {
+	return roleHandlers.NewRoleHandler(roleService, logger, responseBuilder)
 }
 
 // NewPermissionHandler creates a new permission handler
-func NewPermissionHandler(permissionService permissionSvc.PermissionService, logger *logger.Logger) *permissionHandlers.PermissionHandler {
-	return permissionHandlers.NewPermissionHandler(permissionService, logger)
+func NewPermissionHandler(permissionService permissionSvc.PermissionService, logger *logger.Logger, responseBuilder *response.ResponseBuilder) *permissionHandlers.PermissionHandler {
+	return permissionHandlers.NewPermissionHandler(permissionService, logger, responseBuilder)
 }
 
 // NewAuthHandler creates a new authentication handler
-func NewAuthHandler(authService authSvc.AuthService, validator *validator.CustomValidator) *authHandlers.AuthHandler {
-	return authHandlers.NewAuthHandler(authService, validator)
+func NewAuthHandler(authService authSvc.AuthService, validator *validator.CustomValidator, responseBuilder *response.ResponseBuilder) *authHandlers.AuthHandler {
+	return authHandlers.NewAuthHandler(authService, validator, responseBuilder)
 }

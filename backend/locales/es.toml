@@ -1,0 +1,109 @@
+# Spanish language messages for API responses
+
+[messages]
+
+# General success messages
+SUCCESS = "Operación completada exitosamente"
+CREATED = "Recurso creado exitosamente"
+UPDATED = "Recurso actualizado exitosamente"
+DELETED = "Recurso eliminado exitosamente"
+RETRIEVED = "Recurso obtenido exitosamente"
+OPERATION_COMPLETED = "Operación completada exitosamente"
+
+# User-related success messages
+USER_CREATED = "Usuario creado exitosamente"
+USER_UPDATED = "Usuario actualizado exitosamente"
+USER_DELETED = "Usuario eliminado exitosamente"
+USER_RETRIEVED = "Usuario obtenido exitosamente"
+USER_PASSWORD_CHANGED = "Contraseña cambiada exitosamente"
+USER_ACTIVATED = "Usuario activado exitosamente"
+USER_DEACTIVATED = "Usuario desactivado exitosamente"
+USER_SUSPENDED = "Usuario suspendido exitosamente"
+USERS_LISTED = "Usuarios obtenidos exitosamente"
+USER_STATS_RETRIEVED = "Estadísticas de usuario obtenidas exitosamente"
+USERS_BULK_UPDATED = "Usuarios actualizados exitosamente"
+
+# User error messages
+USER_NOT_FOUND = "Usuario no encontrado"
+USER_ALREADY_EXISTS = "El usuario ya existe"
+USER_EMAIL_EXISTS = "La dirección de correo electrónico ya está en uso"
+USER_USERNAME_EXISTS = "El nombre de usuario ya está tomado"
+USER_INVALID_ID = "Formato de ID de usuario inválido"
+USER_INVALID_STATUS = "Estado de usuario inválido"
+USER_CREATION_FAILED = "Error al crear usuario"
+USER_UPDATE_FAILED = "Error al actualizar usuario"
+USER_DELETE_FAILED = "Error al eliminar usuario"
+USER_PASSWORD_INVALID = "La contraseña actual es inválida"
+USER_PASSWORD_TOO_WEAK = "La contraseña no cumple con los requisitos de seguridad"
+USER_PASSWORD_SAME = "La nueva contraseña debe ser diferente a la actual"
+USER_UNAUTHORIZED = "Usuario no autorizado para esta acción"
+USER_SUSPENDED_ACCOUNT = "La cuenta ha sido suspendida"
+USER_INACTIVE_ACCOUNT = "La cuenta está inactiva"
+
+# Authentication success messages
+AUTH_LOGIN_SUCCESS = "Inicio de sesión exitoso"
+AUTH_LOGOUT_SUCCESS = "Cierre de sesión exitoso"
+AUTH_TOKEN_REFRESHED = "Token de autenticación renovado exitosamente"
+AUTH_MFA_ENABLED = "Autenticación multifactor habilitada exitosamente"
+AUTH_MFA_DISABLED = "Autenticación multifactor deshabilitada exitosamente"
+AUTH_MFA_VALIDATED = "Autenticación multifactor validada exitosamente"
+AUTH_BACKUP_CODES_GENERATED = "Códigos de respaldo generados exitosamente"
+AUTH_SESSION_REVOKED = "Sesión revocada exitosamente"
+AUTH_SESSIONS_LISTED = "Sesiones obtenidas exitosamente"
+
+# Authentication error messages
+AUTH_INVALID_CREDENTIALS = "Correo electrónico o contraseña inválidos"
+AUTH_TOKEN_EXPIRED = "El token de autenticación ha expirado"
+AUTH_TOKEN_INVALID = "Token de autenticación inválido"
+AUTH_TOKEN_MISSING = "Se requiere token de autenticación"
+AUTH_REFRESH_TOKEN_INVALID = "Token de renovación inválido"
+AUTH_MFA_REQUIRED = "Se requiere autenticación multifactor"
+AUTH_MFA_INVALID_CODE = "Código de autenticación multifactor inválido"
+AUTH_MFA_NOT_ENABLED = "La autenticación multifactor no está habilitada"
+AUTH_SESSION_NOT_FOUND = "Sesión no encontrada"
+AUTH_LOGIN_FAILED = "Error en el inicio de sesión"
+AUTH_LOGOUT_FAILED = "Error en el cierre de sesión"
+
+# Validation error messages
+VALIDATION_ERROR = "Error de validación"
+VALIDATION_FAILED = "La validación de la solicitud falló"
+VALIDATION_FIELD_REQUIRED = "Falta un campo requerido"
+VALIDATION_FIELD_INVALID = "El campo contiene datos inválidos"
+VALIDATION_EMAIL_INVALID = "Formato de dirección de correo electrónico inválido"
+VALIDATION_PASSWORD_WEAK = "La contraseña no cumple con los requisitos de seguridad"
+VALIDATION_LENGTH_EXCEEDED = "La longitud del campo excede el máximo permitido"
+VALIDATION_LENGTH_INSUFFICIENT = "La longitud del campo está por debajo del mínimo requerido"
+
+# System messages
+SYSTEM_HEALTHY = "El sistema está funcionando correctamente"
+SYSTEM_READY = "El sistema está listo"
+SYSTEM_ERROR = "Ocurrió un error del sistema"
+SYSTEM_UNAVAILABLE = "El sistema no está disponible actualmente"
+SYSTEM_MAINTENANCE = "El sistema está en mantenimiento"
+DATABASE_ERROR = "Ocurrió un error de base de datos"
+DATABASE_CONNECTION_FAILED = "Error al conectar con la base de datos"
+REDIS_ERROR = "Ocurrió un error de Redis"
+REDIS_CONNECTION_FAILED = "Error al conectar con Redis"
+EXTERNAL_SERVICE_ERROR = "Error de servicio externo"
+
+# General error messages
+BAD_REQUEST = "Solicitud incorrecta"
+UNAUTHORIZED = "Acceso no autorizado"
+FORBIDDEN = "Acceso prohibido"
+NOT_FOUND = "Recurso no encontrado"
+METHOD_NOT_ALLOWED = "Método HTTP no permitido"
+CONFLICT = "Conflicto de recurso"
+UNPROCESSABLE_ENTITY = "Entidad no procesable"
+TOO_MANY_REQUESTS = "Demasiadas solicitudes"
+INTERNAL_SERVER_ERROR = "Error interno del servidor"
+SERVICE_UNAVAILABLE = "Servicio no disponible"
+GATEWAY_TIMEOUT = "Tiempo de espera del gateway agotado"
+
+# Request error messages
+REQUEST_INVALID = "Solicitud inválida"
+REQUEST_MALFORMED = "Solicitud mal formada"
+REQUEST_BODY_INVALID = "Cuerpo de solicitud inválido"
+REQUEST_PARAM_MISSING = "Falta un parámetro requerido"
+REQUEST_PARAM_INVALID = "Valor de parámetro inválido"
+REQUEST_HEADER_MISSING = "Falta un encabezado requerido"
+REQUEST_HEADER_INVALID = "Valor de encabezado inválido" 

@@ -16,7 +16,7 @@ import (
 
 // Router handles HTTP routing with dependency-injected handlers
 type Router struct {
-	userHandler       *userHandlers.UserHandler
+	userHandler       *userHandlers.UserHandlerV2
 	tenantHandler     *tenantHandlers.TenantHandler
 	roleHandler       *roleHandlers.RoleHandler
 	permissionHandler *permissionHandlers.PermissionHandler
@@ -31,7 +31,7 @@ type Router struct {
 
 // NewRouter creates a new router with injected handlers and middleware
 func NewRouter(
-	userHandler *userHandlers.UserHandler,
+	userHandler *userHandlers.UserHandlerV2,
 	tenantHandler *tenantHandlers.TenantHandler,
 	roleHandler *roleHandlers.RoleHandler,
 	permissionHandler *permissionHandlers.PermissionHandler,
@@ -114,14 +114,16 @@ func (r *Router) SetupRoutes(e *echo.Echo) {
 	// User management - requires admin or user management permissions
 	users.POST("", r.userHandler.CreateUser, r.enhancedAuth.RequirePermission(constants.PermUserCreate))
 	users.GET("", r.userHandler.ListUsers, r.enhancedAuth.RequirePermission(constants.PermUserRead))
-	users.GET("/stats", r.userHandler.GetUserStats, r.enhancedAuth.RequirePermission(constants.PermUserStats))
-	users.POST("/bulk", r.userHandler.BulkUpdateUsers, r.enhancedAuth.RequirePermission(constants.PermUserBulkUpdate))
+	// TODO: Implement GetUserStats and BulkUpdateUsers in UserHandlerV2
+	// users.GET("/stats", r.userHandler.GetUserStats, r.enhancedAuth.RequirePermission(constants.PermUserStats))
+	// users.POST("/bulk", r.userHandler.BulkUpdateUsers, r.enhancedAuth.RequirePermission(constants.PermUserBulkUpdate))
 
 	// Individual user operations
 	users.GET("/:id", r.userHandler.GetUser, r.enhancedAuth.RequirePermission(constants.PermUserRead))
 	users.PUT("/:id", r.userHandler.UpdateUser, r.enhancedAuth.RequirePermission(constants.PermUserUpdate))
 	users.DELETE("/:id", r.userHandler.DeleteUser, r.enhancedAuth.RequirePermission(constants.PermUserDelete))
-	users.PUT("/:id/password", r.userHandler.ChangePassword, r.enhancedAuth.RequirePermission(constants.PermUserUpdatePassword))
+	// TODO: Implement ChangePassword in UserHandlerV2
+	// users.PUT("/:id/password", r.userHandler.ChangePassword, r.enhancedAuth.RequirePermission(constants.PermUserUpdatePassword))
 
 	// User role and permission routes - requires role management permissions
 	users.GET("/:user_id/roles", r.roleHandler.GetUserRoles, r.enhancedAuth.RequirePermission(constants.PermRoleRead))

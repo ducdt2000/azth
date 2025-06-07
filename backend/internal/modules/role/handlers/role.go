@@ -7,6 +7,7 @@ import (
 	"github.com/ducdt2000/azth/backend/internal/modules/role/dto"
 	"github.com/ducdt2000/azth/backend/internal/modules/role/service"
 	"github.com/ducdt2000/azth/backend/pkg/logger"
+	"github.com/ducdt2000/azth/backend/pkg/response"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"go.opentelemetry.io/otel"
@@ -20,13 +21,19 @@ var tracer = otel.Tracer("role-handler")
 type RoleHandler struct {
 	roleService service.RoleService
 	logger      *logger.Logger
+	response    *response.ResponseBuilder
 }
 
 // NewRoleHandler creates a new role handler
-func NewRoleHandler(roleService service.RoleService, logger *logger.Logger) *RoleHandler {
+func NewRoleHandler(
+	roleService service.RoleService,
+	logger *logger.Logger,
+	responseBuilder *response.ResponseBuilder,
+) *RoleHandler {
 	return &RoleHandler{
 		roleService: roleService,
 		logger:      logger,
+		response:    responseBuilder,
 	}
 }
 
@@ -38,8 +45,9 @@ func (h *RoleHandler) CreateRole(c echo.Context) error {
 	var req dto.RoleRequest
 	if err := c.Bind(&req); err != nil {
 		h.logger.Error("Failed to bind role request", "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid request body",
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
 		})
 	}
 
@@ -63,12 +71,14 @@ func (h *RoleHandler) CreateRole(c echo.Context) error {
 	role, err := h.roleService.CreateRole(ctx, &req, tenantID, createdBy)
 	if err != nil {
 		h.logger.Error("Failed to create role", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, role)
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
+	return h.response.Created(c, response.ROLE_CREATED, role, meta)
 }
 
 // GetRole handles GET /api/v1/roles/:id
@@ -79,8 +89,9 @@ func (h *RoleHandler) GetRole(c echo.Context) error {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid role ID",
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": idStr,
 		})
 	}
 
@@ -89,12 +100,14 @@ func (h *RoleHandler) GetRole(c echo.Context) error {
 	role, err := h.roleService.GetRole(ctx, id)
 	if err != nil {
 		h.logger.Error("Failed to get role", "error", err, "role_id", id)
-		return c.JSON(http.StatusNotFound, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, role)
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
+	return h.response.Success(c, response.ROLE_RETRIEVED, role, meta)
 }
 
 // GetRoleBySlug handles GET /api/v1/roles/slug/:slug
@@ -117,12 +130,14 @@ func (h *RoleHandler) GetRoleBySlug(c echo.Context) error {
 	role, err := h.roleService.GetRoleBySlug(ctx, slug, tenantID)
 	if err != nil {
 		h.logger.Error("Failed to get role by slug", "error", err, "slug", slug)
-		return c.JSON(http.StatusNotFound, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, role)
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
+	return h.response.Success(c, response.ROLE_RETRIEVED, role, meta)
 }
 
 // UpdateRole handles PUT /api/v1/roles/:id
@@ -133,16 +148,18 @@ func (h *RoleHandler) UpdateRole(c echo.Context) error {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid role ID",
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": idStr,
 		})
 	}
 
 	var req dto.UpdateRoleRequest
 	if err := c.Bind(&req); err != nil {
 		h.logger.Error("Failed to bind update role request", "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid request body",
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
 		})
 	}
 
@@ -154,12 +171,14 @@ func (h *RoleHandler) UpdateRole(c echo.Context) error {
 	role, err := h.roleService.UpdateRole(ctx, id, &req, updatedBy)
 	if err != nil {
 		h.logger.Error("Failed to update role", "error", err, "role_id", id)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, role)
+	// Add request metadata
+	requestID := response.GetRequestID(c)
+	meta := h.response.WithRequestID(requestID)
+
+	return h.response.Success(c, response.ROLE_UPDATED, role, meta)
 }
 
 // DeleteRole handles DELETE /api/v1/roles/:id
@@ -170,8 +189,9 @@ func (h *RoleHandler) DeleteRole(c echo.Context) error {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid role ID",
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": idStr,
 		})
 	}
 
@@ -179,13 +199,11 @@ func (h *RoleHandler) DeleteRole(c echo.Context) error {
 
 	if err := h.roleService.DeleteRole(ctx, id); err != nil {
 		h.logger.Error("Failed to delete role", "error", err, "role_id", id)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "Role deleted successfully",
+	return h.response.Success(c, response.ROLE_DELETED, map[string]interface{}{
+		"role_id": id,
 	})
 }
 
@@ -240,12 +258,10 @@ func (h *RoleHandler) ListRoles(c echo.Context) error {
 	roles, err := h.roleService.ListRoles(ctx, &req)
 	if err != nil {
 		h.logger.Error("Failed to list roles", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, roles)
+	return h.response.Success(c, response.ROLE_RETRIEVED, roles, nil)
 }
 
 // GetRolesByTenant handles GET /api/v1/tenants/:tenant_id/roles
@@ -256,8 +272,9 @@ func (h *RoleHandler) GetRolesByTenant(c echo.Context) error {
 	tenantIDStr := c.Param("tenant_id")
 	tenantID, err := uuid.Parse(tenantIDStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid tenant ID",
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "tenant_id",
+			"provided": tenantIDStr,
 		})
 	}
 
@@ -266,12 +283,10 @@ func (h *RoleHandler) GetRolesByTenant(c echo.Context) error {
 	roles, err := h.roleService.GetRolesByTenant(ctx, tenantID)
 	if err != nil {
 		h.logger.Error("Failed to get roles by tenant", "error", err, "tenant_id", tenantID)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, roles)
+	return h.response.Success(c, response.ROLE_RETRIEVED, roles, nil)
 }
 
 // GetGlobalRoles handles GET /api/v1/roles/global
@@ -282,12 +297,10 @@ func (h *RoleHandler) GetGlobalRoles(c echo.Context) error {
 	roles, err := h.roleService.GetGlobalRoles(ctx)
 	if err != nil {
 		h.logger.Error("Failed to get global roles", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, roles)
+	return h.response.Success(c, response.ROLE_RETRIEVED, roles, nil)
 }
 
 // GetSystemRoles handles GET /api/v1/roles/system
@@ -298,12 +311,10 @@ func (h *RoleHandler) GetSystemRoles(c echo.Context) error {
 	roles, err := h.roleService.GetSystemRoles(ctx)
 	if err != nil {
 		h.logger.Error("Failed to get system roles", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, roles)
+	return h.response.Success(c, response.ROLE_RETRIEVED, roles, nil)
 }
 
 // GetDefaultRoles handles GET /api/v1/roles/default
@@ -322,12 +333,10 @@ func (h *RoleHandler) GetDefaultRoles(c echo.Context) error {
 	roles, err := h.roleService.GetDefaultRoles(ctx, tenantID)
 	if err != nil {
 		h.logger.Error("Failed to get default roles", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, roles)
+	return h.response.Success(c, response.ROLE_RETRIEVED, roles, nil)
 }
 
 // AssignPermissions handles POST /api/v1/roles/:id/permissions
@@ -338,16 +347,18 @@ func (h *RoleHandler) AssignPermissions(c echo.Context) error {
 	idStr := c.Param("id")
 	roleID, err := uuid.Parse(idStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid role ID",
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": idStr,
 		})
 	}
 
 	var req dto.RolePermissionRequest
 	if err := c.Bind(&req); err != nil {
 		h.logger.Error("Failed to bind role permission request", "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid request body",
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
 		})
 	}
 
@@ -362,12 +373,10 @@ func (h *RoleHandler) AssignPermissions(c echo.Context) error {
 	result, err := h.roleService.AssignPermissions(ctx, roleID, &req, assignedBy)
 	if err != nil {
 		h.logger.Error("Failed to assign permissions to role", "error", err, "role_id", roleID)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, result)
+	return h.response.Success(c, response.PERMISSION_ASSIGNED, result, nil)
 }
 
 // RevokePermissions handles DELETE /api/v1/roles/:id/permissions
@@ -378,16 +387,18 @@ func (h *RoleHandler) RevokePermissions(c echo.Context) error {
 	idStr := c.Param("id")
 	roleID, err := uuid.Parse(idStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid role ID",
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": idStr,
 		})
 	}
 
 	var req dto.RolePermissionRequest
 	if err := c.Bind(&req); err != nil {
 		h.logger.Error("Failed to bind role permission request", "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid request body",
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
 		})
 	}
 
@@ -398,14 +409,12 @@ func (h *RoleHandler) RevokePermissions(c echo.Context) error {
 
 	if err := h.roleService.RevokePermissions(ctx, roleID, &req); err != nil {
 		h.logger.Error("Failed to revoke permissions from role", "error", err, "role_id", roleID)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		return h.response.ServiceError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "Permissions revoked successfully",
-	})
+	return h.response.Success(c, response.PERMISSION_REVOKED, map[string]interface{}{
+		"role_id": roleID,
+	}, nil)
 }
 
 // ReplacePermissions handles PUT /api/v1/roles/:id/permissions
@@ -416,16 +425,18 @@ func (h *RoleHandler) ReplacePermissions(c echo.Context) error {
 	idStr := c.Param("id")
 	roleID, err := uuid.Parse(idStr)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid role ID",
+		return h.response.BadRequest(c, response.REQUEST_PARAM_INVALID, map[string]interface{}{
+			"param":    "id",
+			"provided": idStr,
 		})
 	}
 
 	var req dto.RolePermissionRequest
 	if err := c.Bind(&req); err != nil {
 		h.logger.Error("Failed to bind role permission request", "error", err)
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Invalid request body",
+		return h.response.ValidationError(c, map[string]interface{}{
+			"field": "request_body",
+			"error": err.Error(),
 		})
 	}
 
