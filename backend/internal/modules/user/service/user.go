@@ -723,7 +723,7 @@ func (s *userService) ValidateUserCredentials(ctx context.Context, email, passwo
 
 	// Reset login attempts on successful authentication
 	_ = s.userRepo.ResetLoginAttempts(ctx, user.ID)
-	_ = s.userRepo.UpdateLastLogin(ctx, user.ID)
+	_ = s.userRepo.UpdateLastLogin(ctx, user.ID, time.Now())
 
 	return user, nil
 }

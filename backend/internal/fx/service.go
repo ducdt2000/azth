@@ -4,6 +4,8 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/ducdt2000/azth/backend/internal/db"
+	authRepo "github.com/ducdt2000/azth/backend/internal/modules/auth/repository"
+	authSvc "github.com/ducdt2000/azth/backend/internal/modules/auth/service"
 	permissionRepo "github.com/ducdt2000/azth/backend/internal/modules/permission/repository"
 	permissionSvc "github.com/ducdt2000/azth/backend/internal/modules/permission/service"
 	roleRepo "github.com/ducdt2000/azth/backend/internal/modules/role/repository"
@@ -21,6 +23,7 @@ var ServiceModule = fx.Module("services",
 	fx.Provide(NewUserService),
 	fx.Provide(NewPermissionService),
 	fx.Provide(NewRoleService),
+	fx.Provide(NewAuthService),
 
 	// CQRS components for tenant service
 	fx.Provide(NewTenantEventStore),
@@ -81,4 +84,20 @@ func NewTenantCommandHandler(
 	// TODO: Implement proper read model repository
 	logger.Info("Tenant command handler placeholder created")
 	return tenantCQRS.NewTenantCommandHandler(eventStore, nil, logger)
+}
+
+// NewAuthService creates a new authentication service
+func NewAuthService(
+	userRepo userRepo.UserRepository,
+	sessionRepo authRepo.SessionRepository,
+	logger *logger.Logger,
+) authSvc.AuthService {
+	// Create default configuration
+	config := authSvc.DefaultAuthConfig()
+
+	// Override with custom values if needed
+	config.JWTSecret = "your-jwt-secret-key-change-in-production" // TODO: Get from env/config
+	config.Mode = authSvc.AuthModeStateful                        // Can be changed to AuthModeStateless for JWT
+
+	return authSvc.NewAuthService(userRepo, sessionRepo, logger, config)
 }

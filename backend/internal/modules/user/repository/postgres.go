@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 
 	"github.com/ducdt2000/azth/backend/internal/db"
 	"github.com/ducdt2000/azth/backend/internal/domain"
@@ -539,18 +540,92 @@ func (r *postgresUserRepository) RevokeAllSessions(ctx context.Context, userID u
 }
 
 // UpdateLastLogin updates the last login timestamp
-func (r *postgresUserRepository) UpdateLastLogin(ctx context.Context, userID uuid.UUID) error {
+func (r *postgresUserRepository) UpdateLastLogin(ctx context.Context, userID uuid.UUID, loginTime time.Time) error {
 	query := `
 		UPDATE users SET 
-			last_login_at = NOW(),
+			last_login_at = $1,
 			updated_at = NOW()
-		WHERE id = $1 AND deleted_at IS NULL
+		WHERE id = $2 AND deleted_at IS NULL
 	`
 
-	_, err := r.db.ExecContext(ctx, query, userID)
+	_, err := r.db.ExecContext(ctx, query, loginTime, userID)
 	if err != nil {
 		r.logger.Error("Failed to update last login", "error", err, "user_id", userID)
 		return fmt.Errorf("failed to update last login: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateLoginAttempts updates login attempts counter
+func (r *postgresUserRepository) UpdateLoginAttempts(ctx context.Context, userID uuid.UUID, attempts int) error {
+	query := `
+		UPDATE users SET 
+			login_attempts = $1,
+			updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`
+
+	_, err := r.db.ExecContext(ctx, query, attempts, userID)
+	if err != nil {
+		r.logger.Error("Failed to update login attempts", "error", err, "user_id", userID)
+		return fmt.Errorf("failed to update login attempts: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateLockedUntil updates the locked until timestamp
+func (r *postgresUserRepository) UpdateLockedUntil(ctx context.Context, userID uuid.UUID, lockedUntil *time.Time) error {
+	query := `
+		UPDATE users SET 
+			locked_until = $1,
+			updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`
+
+	_, err := r.db.ExecContext(ctx, query, lockedUntil, userID)
+	if err != nil {
+		r.logger.Error("Failed to update locked until", "error", err, "user_id", userID)
+		return fmt.Errorf("failed to update locked until: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateMFASecret updates the MFA secret for a user
+func (r *postgresUserRepository) UpdateMFASecret(ctx context.Context, userID uuid.UUID, secret string) error {
+	query := `
+		UPDATE users SET 
+			mfa_secret = $1,
+			mfa_enabled = $2,
+			updated_at = NOW()
+		WHERE id = $3 AND deleted_at IS NULL
+	`
+
+	mfaEnabled := secret != ""
+	_, err := r.db.ExecContext(ctx, query, secret, mfaEnabled, userID)
+	if err != nil {
+		r.logger.Error("Failed to update MFA secret", "error", err, "user_id", userID)
+		return fmt.Errorf("failed to update MFA secret: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateBackupCodes updates the backup codes for a user
+func (r *postgresUserRepository) UpdateBackupCodes(ctx context.Context, userID uuid.UUID, codes []string) error {
+	query := `
+		UPDATE users SET 
+			backup_codes = $1,
+			updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`
+
+	_, err := r.db.ExecContext(ctx, query, pq.Array(codes), userID)
+	if err != nil {
+		r.logger.Error("Failed to update backup codes", "error", err, "user_id", userID)
+		return fmt.Errorf("failed to update backup codes: %w", err)
 	}
 
 	return nil

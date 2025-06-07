@@ -1,0 +1,60 @@
+# Authentication Configuration
+auth:
+  # Authentication mode: "stateful" (session/cookie) or "stateless" (JWT)
+  mode: "stateful"
+
+  # Session configuration (for stateful mode)
+  session:
+    ttl: "24h" # Session time-to-live
+    refresh_token_ttl: "720h" # Refresh token TTL (30 days)
+    max_login_attempts: 5 # Maximum failed login attempts before lockout
+    lockout_duration: "15m" # Account lockout duration
+
+  # JWT configuration (for stateless mode)
+  jwt:
+    secret: "${JWT_SECRET}" # JWT signing secret (from environment)
+    access_token_ttl: "15m" # Access token TTL
+    refresh_token_ttl: "168h" # Refresh token TTL (7 days)
+    issuer: "azth-auth-service" # JWT issuer
+    audience: "azth-api" # JWT audience
+
+  # Password hashing configuration
+  password:
+    algorithm: "argon2id" # "argon2id" (recommended) or "bcrypt"
+
+    # Bcrypt configuration (if using bcrypt)
+    bcrypt_cost: 12
+
+    # Argon2ID configuration (if using argon2id)
+    argon2id:
+      memory: 65536 # Memory usage in KB (64MB)
+      iterations: 3 # Number of iterations
+      parallelism: 2 # Degree of parallelism
+      salt_length: 16 # Salt length in bytes
+      key_length: 32 # Key length in bytes
+
+# Example configurations for different environments:
+
+# Development (Session-based)
+# auth:
+#   mode: "stateful"
+#   session:
+#     ttl: "8h"
+#     refresh_token_ttl: "168h"
+#   password:
+#     algorithm: "bcrypt"
+#     bcrypt_cost: 10
+
+# Production (JWT-based)
+# auth:
+#   mode: "stateless"
+#   jwt:
+#     secret: "${JWT_SECRET}"
+#     access_token_ttl: "15m"
+#     refresh_token_ttl: "168h"
+#   password:
+#     algorithm: "argon2id"
+#     argon2id:
+#       memory: 131072
+#       iterations: 4
+#       parallelism: 4

@@ -4,6 +4,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/ducdt2000/azth/backend/internal/db"
+	authRepo "github.com/ducdt2000/azth/backend/internal/modules/auth/repository"
 	permissionRepo "github.com/ducdt2000/azth/backend/internal/modules/permission/repository"
 	roleRepo "github.com/ducdt2000/azth/backend/internal/modules/role/repository"
 	tenantRepo "github.com/ducdt2000/azth/backend/internal/modules/tenant/repository"
@@ -14,6 +15,7 @@ import (
 // RepositoryModule provides data access layer dependencies
 var RepositoryModule = fx.Module("repositories",
 	fx.Provide(NewUserRepository),
+	fx.Provide(NewSessionRepository),
 	fx.Provide(NewTenantRepository),
 	fx.Provide(NewRoleRepository),
 	fx.Provide(NewRolePermissionRepository),
@@ -54,4 +56,9 @@ func NewUserRoleRepository(db *db.DB, logger *logger.Logger) roleRepo.UserRoleRe
 // NewPermissionRepository creates a new permission repository
 func NewPermissionRepository(db *db.DB, logger *logger.Logger) permissionRepo.PermissionRepository {
 	return permissionRepo.NewPermissionRepository(db.DB)
+}
+
+// NewSessionRepository creates a new session repository
+func NewSessionRepository(db *db.DB, logger *logger.Logger) authRepo.SessionRepository {
+	return authRepo.NewSessionRepository(db.DB)
 }

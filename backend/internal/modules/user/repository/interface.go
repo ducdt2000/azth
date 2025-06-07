@@ -66,7 +66,19 @@ type UserRepository interface {
 	RevokeAllSessions(ctx context.Context, userID uuid.UUID) error
 
 	// UpdateLastLogin updates the last login timestamp
-	UpdateLastLogin(ctx context.Context, userID uuid.UUID) error
+	UpdateLastLogin(ctx context.Context, userID uuid.UUID, loginTime time.Time) error
+
+	// UpdateLoginAttempts updates login attempts counter
+	UpdateLoginAttempts(ctx context.Context, userID uuid.UUID, attempts int) error
+
+	// UpdateLockedUntil updates the locked until timestamp
+	UpdateLockedUntil(ctx context.Context, userID uuid.UUID, lockedUntil *time.Time) error
+
+	// UpdateMFASecret updates the MFA secret for a user
+	UpdateMFASecret(ctx context.Context, userID uuid.UUID, secret string) error
+
+	// UpdateBackupCodes updates the backup codes for a user
+	UpdateBackupCodes(ctx context.Context, userID uuid.UUID, codes []string) error
 
 	// IncrementLoginAttempts increments login attempts counter
 	IncrementLoginAttempts(ctx context.Context, userID uuid.UUID) error

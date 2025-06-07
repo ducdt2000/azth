@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/ducdt2000/azth/backend/internal/constants"
 	"github.com/ducdt2000/azth/backend/internal/domain"
 	"github.com/ducdt2000/azth/backend/internal/modules/permission/dto"
 	"github.com/ducdt2000/azth/backend/internal/modules/permission/repository"
@@ -570,39 +571,55 @@ func getDefaultSystemPermissions() []struct {
 		IsDefault   bool
 	}{
 		// User permissions
-		{"Read Users", domain.PermissionUserRead, desc("View user information and list users"), "user", "user", "read", true},
-		{"Write Users", domain.PermissionUserWrite, desc("Create and update user information"), "user", "user", "write", false},
-		{"Delete Users", domain.PermissionUserDelete, desc("Delete or deactivate users"), "user", "user", "delete", false},
-		{"Admin Users", domain.PermissionUserAdmin, desc("Full administrative access to user management"), "user", "user", "admin", false},
+		{"Read Users", constants.PermUserRead, desc("View user information and list users"), "user", "user", "read", true},
+		{"Create Users", constants.PermUserCreate, desc("Create new users"), "user", "user", "create", false},
+		{"Update Users", constants.PermUserUpdate, desc("Update user information"), "user", "user", "update", false},
+		{"Delete Users", constants.PermUserDelete, desc("Delete or deactivate users"), "user", "user", "delete", false},
+		{"User Stats", constants.PermUserStats, desc("View user statistics"), "user", "user", "stats", false},
+		{"Bulk Update Users", constants.PermUserBulkUpdate, desc("Bulk update users"), "user", "user", "bulk_update", false},
+		{"Update User Password", constants.PermUserUpdatePassword, desc("Change user passwords"), "user", "user", "update_password", false},
+		{"Assign User Role", constants.PermUserAssignRole, desc("Assign roles to users"), "user", "user", "assign_role", false},
+		{"Revoke User Role", constants.PermUserRevokeRole, desc("Revoke roles from users"), "user", "user", "revoke_role", false},
 
 		// Tenant permissions
-		{"Read Tenants", domain.PermissionTenantRead, desc("View tenant information and settings"), "tenant", "tenant", "read", true},
-		{"Write Tenants", domain.PermissionTenantWrite, desc("Create and update tenant information"), "tenant", "tenant", "write", false},
-		{"Delete Tenants", domain.PermissionTenantDelete, desc("Delete or suspend tenants"), "tenant", "tenant", "delete", false},
-		{"Admin Tenants", domain.PermissionTenantAdmin, desc("Full administrative access to tenant management"), "tenant", "tenant", "admin", false},
+		{"Read Tenants", constants.PermTenantRead, desc("View tenant information and settings"), "tenant", "tenant", "read", true},
+		{"Create Tenants", constants.PermTenantCreate, desc("Create new tenants"), "tenant", "tenant", "create", false},
+		{"Update Tenants", constants.PermTenantUpdate, desc("Update tenant information"), "tenant", "tenant", "update", false},
+		{"Delete Tenants", constants.PermTenantDelete, desc("Delete or suspend tenants"), "tenant", "tenant", "delete", false},
+		{"Activate Tenants", constants.PermTenantActivate, desc("Activate tenants"), "tenant", "tenant", "activate", false},
+		{"Deactivate Tenants", constants.PermTenantDeactivate, desc("Deactivate tenants"), "tenant", "tenant", "deactivate", false},
+		{"Suspend Tenants", constants.PermTenantSuspend, desc("Suspend tenants"), "tenant", "tenant", "suspend", false},
 
 		// Role permissions
-		{"Read Roles", domain.PermissionRoleRead, desc("View roles and role assignments"), "role", "role", "read", true},
-		{"Write Roles", domain.PermissionRoleWrite, desc("Create and update roles"), "role", "role", "write", false},
-		{"Delete Roles", domain.PermissionRoleDelete, desc("Delete roles"), "role", "role", "delete", false},
-		{"Admin Roles", domain.PermissionRoleAdmin, desc("Full administrative access to role management"), "role", "role", "admin", false},
+		{"Read Roles", constants.PermRoleRead, desc("View roles and role assignments"), "role", "role", "read", true},
+		{"Create Roles", constants.PermRoleCreate, desc("Create new roles"), "role", "role", "create", false},
+		{"Update Roles", constants.PermRoleUpdate, desc("Update role information"), "role", "role", "update", false},
+		{"Delete Roles", constants.PermRoleDelete, desc("Delete roles"), "role", "role", "delete", false},
+		{"Role Stats", constants.PermRoleStats, desc("View role statistics"), "role", "role", "stats", false},
+		{"Bulk Create Roles", constants.PermRoleBulkCreate, desc("Bulk create roles"), "role", "role", "bulk_create", false},
+		{"Bulk Delete Roles", constants.PermRoleBulkDelete, desc("Bulk delete roles"), "role", "role", "bulk_delete", false},
 
 		// Permission permissions
-		{"Read Permissions", domain.PermissionPermissionRead, desc("View permissions"), "permission", "permission", "read", true},
-		{"Write Permissions", domain.PermissionPermissionWrite, desc("Create and update permissions"), "permission", "permission", "write", false},
-		{"Delete Permissions", domain.PermissionPermissionDelete, desc("Delete permissions"), "permission", "permission", "delete", false},
-		{"Admin Permissions", domain.PermissionPermissionAdmin, desc("Full administrative access to permission management"), "permission", "permission", "admin", false},
+		{"Read Permissions", constants.PermPermissionRead, desc("View permissions"), "permission", "permission", "read", true},
+		{"Create Permissions", constants.PermPermissionCreate, desc("Create new permissions"), "permission", "permission", "create", false},
+		{"Update Permissions", constants.PermPermissionUpdate, desc("Update permission information"), "permission", "permission", "update", false},
+		{"Delete Permissions", constants.PermPermissionDelete, desc("Delete permissions"), "permission", "permission", "delete", false},
+		{"Assign Permissions", constants.PermPermissionAssign, desc("Assign permissions to roles"), "permission", "permission", "assign", false},
+		{"Revoke Permissions", constants.PermPermissionRevoke, desc("Revoke permissions from roles"), "permission", "permission", "revoke", false},
+		{"Bulk Create Permissions", constants.PermPermissionBulkCreate, desc("Bulk create permissions"), "permission", "permission", "bulk_create", false},
+		{"Bulk Delete Permissions", constants.PermPermissionBulkDelete, desc("Bulk delete permissions"), "permission", "permission", "bulk_delete", false},
+		{"Validate Permissions", constants.PermPermissionValidate, desc("Validate permission codes and actions"), "permission", "permission", "validate", false},
 
 		// OIDC permissions
-		{"Read OIDC", domain.PermissionOIDCRead, desc("View OIDC clients and configurations"), "oidc", "client", "read", false},
-		{"Write OIDC", domain.PermissionOIDCWrite, desc("Create and update OIDC clients"), "oidc", "client", "write", false},
-		{"Delete OIDC", domain.PermissionOIDCDelete, desc("Delete OIDC clients"), "oidc", "client", "delete", false},
-		{"Admin OIDC", domain.PermissionOIDCAdmin, desc("Full administrative access to OIDC management"), "oidc", "client", "admin", false},
+		{"Read OIDC", constants.PermOIDCRead, desc("View OIDC clients and configurations"), "oidc", "client", "read", false},
+		{"Write OIDC", constants.PermOIDCWrite, desc("Create and update OIDC clients"), "oidc", "client", "write", false},
+		{"Delete OIDC", constants.PermOIDCDelete, desc("Delete OIDC clients"), "oidc", "client", "delete", false},
+		{"Admin OIDC", constants.PermOIDCAdmin, desc("Full administrative access to OIDC management"), "oidc", "client", "admin", false},
 
 		// Audit permissions
-		{"Read Audit", domain.PermissionAuditRead, desc("View audit logs and system activities"), "audit", "log", "read", false},
+		{"Read Audit", constants.PermAuditRead, desc("View audit logs and system activities"), "audit", "log", "read", false},
 
 		// System permissions
-		{"System Admin", domain.PermissionSystemAdmin, desc("Full system administrative access"), "system", "admin", "admin", false},
+		{"System Admin", constants.PermSystemAdmin, desc("Full system administrative access"), "system", "admin", "admin", false},
 	}
 }

@@ -3,6 +3,8 @@ package fx
 import (
 	"go.uber.org/fx"
 
+	authHandlers "github.com/ducdt2000/azth/backend/internal/modules/auth/handlers"
+	authSvc "github.com/ducdt2000/azth/backend/internal/modules/auth/service"
 	permissionHandlers "github.com/ducdt2000/azth/backend/internal/modules/permission/handlers"
 	permissionSvc "github.com/ducdt2000/azth/backend/internal/modules/permission/service"
 	roleHandlers "github.com/ducdt2000/azth/backend/internal/modules/role/handlers"
@@ -12,6 +14,7 @@ import (
 	userHandlers "github.com/ducdt2000/azth/backend/internal/modules/user/handlers"
 	userSvc "github.com/ducdt2000/azth/backend/internal/modules/user/service"
 	"github.com/ducdt2000/azth/backend/pkg/logger"
+	"github.com/ducdt2000/azth/backend/pkg/validator"
 )
 
 // HandlerModule provides HTTP handler dependencies
@@ -20,8 +23,8 @@ var HandlerModule = fx.Module("handlers",
 	fx.Provide(NewTenantHandler),
 	fx.Provide(NewRoleHandler),
 	fx.Provide(NewPermissionHandler),
+	fx.Provide(NewAuthHandler),
 	// TODO: Add more handler providers here
-	// fx.Provide(NewAuthHandler),
 	// fx.Provide(NewOIDCHandler),
 )
 
@@ -43,4 +46,9 @@ func NewRoleHandler(roleService roleSvc.RoleService, logger *logger.Logger) *rol
 // NewPermissionHandler creates a new permission handler
 func NewPermissionHandler(permissionService permissionSvc.PermissionService, logger *logger.Logger) *permissionHandlers.PermissionHandler {
 	return permissionHandlers.NewPermissionHandler(permissionService, logger)
+}
+
+// NewAuthHandler creates a new authentication handler
+func NewAuthHandler(authService authSvc.AuthService, validator *validator.CustomValidator) *authHandlers.AuthHandler {
+	return authHandlers.NewAuthHandler(authService, validator)
 }

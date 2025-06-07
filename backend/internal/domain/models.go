@@ -3,6 +3,7 @@ package domain
 import (
 	"time"
 
+	"github.com/ducdt2000/azth/backend/internal/constants"
 	"github.com/google/uuid"
 )
 
@@ -315,43 +316,44 @@ type AuditLog struct {
 // JSONMap represents a JSON object stored in the database
 type JSONMap map[string]interface{}
 
-// Permission constants for RBAC
+// Legacy permission constants - DEPRECATED: Use constants.Perm* instead
+// These are kept for backward compatibility and will be removed in a future version
 const (
-	// User permissions
-	PermissionUserRead   = "user:read"
-	PermissionUserWrite  = "user:write"
-	PermissionUserDelete = "user:delete"
-	PermissionUserAdmin  = "user:admin"
+	// User permissions - use constants.PermUser* instead
+	PermissionUserRead   = constants.PermUserRead
+	PermissionUserWrite  = constants.PermUserUpdate // Note: mapped to Update for consistency
+	PermissionUserDelete = constants.PermUserDelete
+	PermissionUserAdmin  = "user:admin" // No direct mapping - consider using specific permissions
 
-	// Tenant permissions
-	PermissionTenantRead   = "tenant:read"
-	PermissionTenantWrite  = "tenant:write"
-	PermissionTenantDelete = "tenant:delete"
-	PermissionTenantAdmin  = "tenant:admin"
+	// Tenant permissions - use constants.PermTenant* instead
+	PermissionTenantRead   = constants.PermTenantRead
+	PermissionTenantWrite  = constants.PermTenantUpdate // Note: mapped to Update for consistency
+	PermissionTenantDelete = constants.PermTenantDelete
+	PermissionTenantAdmin  = "tenant:admin" // No direct mapping - consider using specific permissions
 
-	// Role permissions
-	PermissionRoleRead   = "role:read"
-	PermissionRoleWrite  = "role:write"
-	PermissionRoleDelete = "role:delete"
-	PermissionRoleAdmin  = "role:admin"
+	// Role permissions - use constants.PermRole* instead
+	PermissionRoleRead   = constants.PermRoleRead
+	PermissionRoleWrite  = constants.PermRoleUpdate // Note: mapped to Update for consistency
+	PermissionRoleDelete = constants.PermRoleDelete
+	PermissionRoleAdmin  = "role:admin" // No direct mapping - consider using specific permissions
 
-	// Permission permissions
-	PermissionPermissionRead   = "permission:read"
-	PermissionPermissionWrite  = "permission:write"
-	PermissionPermissionDelete = "permission:delete"
-	PermissionPermissionAdmin  = "permission:admin"
+	// Permission permissions - use constants.PermPermission* instead
+	PermissionPermissionRead   = constants.PermPermissionRead
+	PermissionPermissionWrite  = constants.PermPermissionUpdate // Note: mapped to Update for consistency
+	PermissionPermissionDelete = constants.PermPermissionDelete
+	PermissionPermissionAdmin  = "permission:admin" // No direct mapping - consider using specific permissions
 
-	// OIDC permissions
-	PermissionOIDCRead   = "oidc:read"
-	PermissionOIDCWrite  = "oidc:write"
-	PermissionOIDCDelete = "oidc:delete"
-	PermissionOIDCAdmin  = "oidc:admin"
+	// OIDC permissions - use constants.PermOIDC* instead
+	PermissionOIDCRead   = constants.PermOIDCRead
+	PermissionOIDCWrite  = constants.PermOIDCWrite
+	PermissionOIDCDelete = constants.PermOIDCDelete
+	PermissionOIDCAdmin  = constants.PermOIDCAdmin
 
-	// Audit permissions
-	PermissionAuditRead = "audit:read"
+	// Audit permissions - use constants.PermAudit* instead
+	PermissionAuditRead = constants.PermAuditRead
 
-	// System permissions
-	PermissionSystemAdmin = "system:admin"
+	// System permissions - use constants.PermSystem* instead
+	PermissionSystemAdmin = constants.PermSystemAdmin
 )
 
 // System role constants
